@@ -36,6 +36,7 @@ singleCharTokens = ":()=+- ;\n"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
+lexicalAnalysis :: String -> [Token]
 lexicalAnalysis =  helper 0 where 
     helper :: Int -> String -> [Token]
     helper _ [] = []

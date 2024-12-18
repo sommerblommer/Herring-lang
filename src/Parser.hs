@@ -1,125 +1,295 @@
 module Parser (testParser) where 
 import Data.Set as Set
 import Lexer (Token(..))
-import Data.Bifunctor (Bifunctor(bimap))
 import qualified Data.Map.Strict as Dm
+import Data.Maybe (catMaybes)
+import qualified Data.Foldable as D
 
 type Rule = [Atom]
 
 data Atom = T Token | V String 
-    deriving (Ord, Eq, Show)
+    deriving (Ord, Show)
+
+instance Eq Atom where 
+    (T a) == (T b) = a == b 
+    (V a) == (V b) = a == b
+    _ == _ = False
+
 
 type Grammar = Dm.Map String [Rule]
 
 
+startRule :: String 
+startRule = "Stm"
 
--- >>>  test
--- fromList [("Exp",[[V "Exp",V "Op",V "Term"],[V "Term"]]),("Op",[[T Plus],[T Minus]]),("Stm",[[V "Stm",V "Exp"],[V "Exp"]]),("Term",[[T (Literal {num = 1})],[T (Ident {ident = "String"})],[T LeftParen,V "Exp",T RightParen]])]
+testParser :: IO () 
+testParser = do 
+    putStrLn ":::::::"
+    putStrLn "FindTable:"
+    print $ findTable test
+    putStrLn ":::::::"
+    putStrLn "FollowTable"
+    let res =  followTable test
+    print res 
+    putStrLn ":::::::"
+    let p = Position {prod = "S", rule = [V "S", V "A"], pos = 0, followSet = fromList [EOF]} 
+    let e =  Position {prod = "", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]} 
+    --putStr $ prettyAuto . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
+    putStr $ prettyAuto . transition test . mergeClosures $ initialClosure test e 
+
+simpleGrammar :: Grammar 
+simpleGrammar = 
+    let s = Dm.singleton "S" [[V "S", V "A"], [V "S", V "B"]] in
+    let a = Dm.insert "A" [[T Ident {ident="a"}]] s in 
+    Dm.insert "B" [[T Ident {ident="b"}]] a  
+
 test :: Grammar
 test = 
     let terms = Dm.singleton "Term" [[T Literal {num=1}], [T Ident {ident="String"}], [T LeftParen, V "Exp", T RightParen]]
     in 
     let ops = Dm.insert "Op" [[T Plus], [T Minus]] terms in
-    let exp = 
+    let exps = 
             Dm.insert "Exp" [[V "Exp", V "Op", V "Term"]
             , [V "Term"]
             ] ops
     in
-    let stm = Dm.insert "Stm" [[V "Stm", V "Exp"], [V "Exp"]] exp in
+    let stm = Dm.insert "Stm" [[V "Stm", V "Exp"], [V "Exp"]] exps in
     stm
-
-
-testParser :: IO () 
-testParser = do 
-    let t = test 
-    print $ findTable t 
-    print $ followTable t
 
 isToken :: Atom -> Bool 
 isToken (T _) = True 
 isToken (V _) = False 
 
-stringAtomEq :: String -> Atom -> Bool 
-stringAtomEq s (V a) = s == a 
-stringAtomEq _ _ = False
+(!?) :: [a] -> Int -> Maybe a
+(!?) xs n
+    | length xs <= n = Nothing 
+    | otherwise = Just (xs !! n)
+-------------------- Pretty --------------------
+class Pretty a where 
+    pretty :: a -> String
 
-findTable :: Grammar -> Dm.Map String (Set Token) 
-findTable g = Dm.foldlWithKey (\acc k v ->   Dm.insert k (find k v g) acc) Dm.empty g  
+prettyAuto :: Automaton -> String 
+prettyAuto = Dm.foldlWithKey (\acc k v -> acc ++ prettyState k ++ "with transitions\n" ++ prettyAA v) "Automaton:\n" 
 
+prettyAA :: Dm.Map Atom State -> String 
+prettyAA  = Dm.foldlWithKey (\acc k v -> acc ++ "transition: " ++ pretty k ++ "\n" ++ prettyState v) "" 
+
+prettyState :: State -> String
+prettyState = Set.foldl (\acc p -> acc ++ pretty p ++ "\n") ""
+
+instance Pretty Position where 
+    pretty p = 
+        let lookahead = reverse . (\(_:xs) -> '}':xs) . reverse $ Set.foldl (\acc' e -> acc' ++ pretty (T e) ++ ",") "{" $ followSet p in
+        let pRule = prettyPosRule 0 (pos p) $ rule p in
+        prod p ++ " -> " ++ pRule ++ " <=> " ++ lookahead  
+        where 
+        prettyPosRule :: Int -> Int -> Rule -> String
+        prettyPosRule iter po (a:as) 
+            | iter == po = " . " ++ pretty a ++ prettyPosRule (iter + 1) po as
+            | iter + 1 == po && length (a:as) == 1 = " " ++ pretty a ++ " ."
+            | otherwise = " " ++ pretty a ++ prettyPosRule (iter + 1) po as 
+        prettyPosRule _ _ _ = ""
+
+instance Pretty Atom where 
+    pretty (T Ident {ident=_}) = "Ident"
+    pretty (T Literal {num=_}) = "Literal"
+    pretty (T t) = show t
+    pretty (V v) = v
+-------------------- GOTO --------------------
+type Automaton = Dm.Map State (Dm.Map Atom State)
+
+--  findTransitionTargets . mergeClosures . initialClosure test $ Position {prod = "Stm", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]}
+
+
+--  >>> prettyAuto . transition simpleGrammar . mergeClosures . initialClosure simpleGrammar $ Position {prod = "S", rule = [V "S", V "A"], pos = 0, followSet = fromList [EOF]}
+-- "S ->   S A\nS ->   S B\n\nS\nA ->   Ident {ident = \"a\"}\nB ->   Ident {ident = \"b\"}\nS ->   S A\nS ->   S B\n"
+
+-- closure simpleGrammar $ fromList [Position {prod = "S", rule = [V "S",V "A"], pos = 1, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}]
+-- fromList [Position {prod = "A", rule = [T (Ident {ident = "a"})], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 1, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}]
+
+findTransitionTargets :: State -> Dm.Map Atom (Set Position)
+findTransitionTargets state = 
+    let targets = Set.fromList . catMaybes  $ Set.foldl (\acc p -> 
+                    let target =  rule p !? pos p in
+                    target:acc
+                ) [] state
+    in 
+    Set.foldl (\acc t -> 
+                let b = Dm.singleton t $ Set.foldl (\acc2 p -> 
+                           let target = rule p !? pos p in
+                           if target == Just t then
+                           Set.insert (incrementPos p) acc2
+                           else acc2
+                        ) Set.empty state    
+                in
+                Dm.unionWith union acc b
+            ) Dm.empty targets
+
+
+transition :: Grammar -> State -> Automaton 
+transition g state = 
+    let targets = findTransitionTargets state in 
+    let a = Prelude.foldl (\acc (a, set) -> 
+                                let newState = closure g set in
+                                let newM = Dm.singleton a newState in 
+                                Dm.union acc newM
+                            ) Dm.empty $ Dm.toList targets
+    in
+    Dm.singleton state a 
+
+-------------------- Closure --------------------
+data Position = Position {prod::String, rule::Rule, pos::Int, followSet :: Set Token}
+    deriving (Ord, Show)
+instance Eq Position where 
+    a == b = 
+        (prod a == prod b) && (rule a == rule b) && (pos a == pos b)
+type State = Set Position
+
+incrementPos :: Position -> Position 
+incrementPos p = Position {prod=prod p, rule=rule p, pos= pos p + 1, followSet=followSet p} 
+
+
+-- >>>  mergeClosures $ initialClosure simpleGrammar $ Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]}
+-- fromList [Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "B"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}]
+
+
+--   mergeClosures $ closure test $ Position {prod = "Stm", rule = [V "Stm"], pos = 1, followSet = fromList [EOF]}
+
+mergeClosures :: State -> State 
+mergeClosures = helper . toList where 
+    helper :: [Position] -> State 
+    helper [] = Set.empty 
+    helper (x:y:rest) 
+        | x == y =
+            let s = Position {prod=prod x, rule=rule x, pos=pos x, followSet= followSet x `union` followSet y} in
+            helper (s:rest) 
+        | otherwise = Set.singleton x `union` helper (y:rest)
+    helper [x] = Set.singleton x
+
+fSet :: Grammar -> Atom -> Set Token
+fSet _ (T t)  = Set.singleton t 
+fSet g (V v) = findFromVar g v
+
+initialClosure :: Grammar -> Position -> State
+initialClosure g p = closure g initial where 
+    initial = closureR g p
+
+closure :: Grammar -> State -> State 
+closure g state = 
+        let newState = Set.foldl (\acc po -> 
+                    let cl = closureR g po in
+                    acc `union` cl
+                ) Set.empty state 
+        in
+        if newState == state then 
+            mergeClosures newState 
+        else 
+            closure g newState
+
+closureR:: Grammar -> Position -> State
+closureR g p 
+    | length (rule p) == pos p = Set.singleton p 
+    | otherwise = 
+        let locus = rule p !! pos p in
+        case locus of 
+            T _ -> Set.empty
+            V var -> 
+                let lup = g Dm.! var in
+                let fset = 
+                        if length (rule p) > (pos p + 1) then
+                            let next = rule p !! (pos p + 1) in
+                            fSet g next 
+                        else 
+                            followSet p
+                in
+                Prelude.foldl(\acc r -> 
+                    let pp = Position {prod=var, rule=r, pos=0, followSet=fset} in
+                    Set.insert pp acc
+                ) (Set.singleton p) lup
+
+generatePositions :: String -> [Rule] ->  Set Position
+generatePositions  s = 
+    Prelude.foldl (\acc r -> 
+                acc `Set.union` fromList [Position {prod=s,rule=r, pos=x, followSet=Set.empty} | x <- [0..(length r)]]
+            ) Set.empty  
+
+-------------------- FOLLOW --------------------
 
 followTable :: Grammar -> Dm.Map String (Set Token)
 followTable g = 
-    let (nonTerms, rules) = unzip $ Dm.toList g in 
-    let initial = Prelude.foldl (\acc nt ->
-            let relevantRules = concat . Prelude.filter (elem (V nt)) <$> rules in
-            let alsoRelevant = concatMap snd . Prelude.filter (\(s, _) -> s == nt) $ Dm.toList g in
-            Dm.unionWith Set.union acc (foo Set.empty nt (relevantRules ++ alsoRelevant) g) ) Dm.empty nonTerms 
+    let findT = findTable g in
+    let mapl = Dm.toList g in 
+    let initial = Prelude.foldl (\acc (s, rule) -> acc <> foo s rule g) emptyFollowA mapl 
     in
-    initial
---Todo Write a fix-point function
-followFixPoint :: Grammar -> Dm.Map String (Set Token) -> Dm.Map String (Set Token)
-followFixPoint g = id
-
-
-findRelevant :: String -> [[Rule]] -> Grammar -> [Rule]
-findRelevant nt rules g = 
-        let relevantRules = concat . Prelude.filter (elem (V nt)) <$> rules in
-        let b = concatMap snd . Prelude.filter (\(s, _) -> s == nt) $ Dm.toList g in 
-        relevantRules ++ b
-
---insertIntoMap :: 
--- >>> foo Set.empty "Stm" [[V "Stm", V "Exp"], [V "Exp"]] test
--- fromList [("Exp",fromList [Ident {ident = "String"},LeftParen,Literal {num = 1}]),("Stm",fromList [Ident {ident = "String"},LeftParen,Literal {num = 1}])]
-foo :: Set String ->  String -> [Rule] -> Grammar -> Dm.Map String (Set Token)
-foo acc s [] _ = Dm.singleton s Set.empty
-foo acc s rs g = 
-    let (trivialFollows, nested, followed) = 
-         Prelude.foldl (\(mAcc, sAcc, facc) r -> 
-            let (tokens, vars, followVars) = bar s r in
-            (mAcc `union` tokens, sAcc `union` vars, facc `union` followVars)
-         ) (Set.empty, Set.empty, Set.empty) rs
+    let tokensFromFirst = 
+            Prelude.foldl (\acc (x, ys) ->
+                let m = Set.foldl (\acc2 y -> acc2 `union` (findT Dm.! y)) Set.empty ys
+                in
+                let nm = Dm.singleton x m in 
+                Dm.unionWith Set.union nm acc
+            ) Dm.empty . Dm.toList $ firsts initial
     in
-    let firstMap = Dm.singleton s trivialFollows in 
-    let nested' = Set.difference nested acc in
-    let res = Set.foldl (\acc2 var ->
-                let lup = Dm.lookup var g in
-                let next = Set.empty `maybe` (\v -> find var v g)  in
-                acc2 `union` next lup 
-            ) trivialFollows nested'
-    in
-    let map' = Dm.insert s res firstMap in 
-    let copy = 
-            let lup = Dm.findWithDefault Set.empty s map' in 
-            Set.foldl (\acc' f -> Dm.insert f lup acc') Dm.empty followed
-    in
-    Dm.unionWith Set.union map' copy 
-
-foobar :: Set String -> Set String -> [[Rule]] -> Grammar -> Dm.Map String (Set Token)
-foobar acc' followed rules g = Set.foldl (\acc2 var -> 
-                let rel = findRelevant var rules g in
-                foo acc' var rel g `Dm.union` acc2
-            ) Dm.empty followed
+    let temp = FollowAction {terminals=tokensFromFirst, firsts=Dm.empty, follows=Dm.empty} in
+    let aaa = initial <> temp in 
+    terminals $ aaa <> repeated aaa
 
 
-bar :: String -> Rule -> (Set Token, Set String, Set String)
-bar s [V va]  
-    | va == s = (Set.singleton EOF, Set.empty, Set.empty)
-    | va /= s = (Set.empty, Set.empty, Set.singleton va)
-    | otherwise = (Set.empty, Set.empty, Set.empty)
-bar s ((V va):(T tb):rest)  
-    | va == s = 
-        let (newA, newB, c) = bar s rest in 
-        (Set.singleton tb `union` newA, newB, c)
-    | otherwise = 
-        bar s rest   
-bar s ((V va):(V vb):rest) 
-    | va == s && vb /= s =
-        let (a, b, c) = bar s rest  in
-        (a, Set.singleton vb `union` b, c)
-    | otherwise = bar s $ V vb:rest 
-bar s ((T _):rest) = bar s rest
-bar _ _ = (Set.empty, Set.empty, Set.empty)
+repeated :: FollowAction -> FollowAction    
+repeated acc' = 
+        let followT = terminals acc' in
+        let fi = follows acc' in
+        let fol = Prelude.foldl (\acc (x, ys) -> 
+                    let m = Set.foldl (\acc2 y -> acc2 `union` (followT Dm.! y)) Set.empty ys
+                    in 
+                    let nm = Dm.singleton x m in 
+                    Dm.unionWith Set.union nm acc
+                ) followT $ Dm.toList fi 
+        in
+        let next = FollowAction {terminals=fol, firsts=Dm.empty, follows=fi} in
+        if acc' == next then 
+            next 
+        else repeated next
 
+
+foo ::  String -> [Rule] -> Grammar -> FollowAction
+foo s [] _ = emptyFollowA
+foo s rs g = Prelude.foldl (\acc r -> acc <> analyze s r) emptyFollowA rs  
+
+data FollowAction = FollowAction {terminals :: Dm.Map String (Set Token), firsts :: Dm.Map String (Set String), follows :: Dm.Map String (Set String)}
+    deriving (Show)
+
+emptyFollowA :: FollowAction 
+emptyFollowA = FollowAction {terminals=Dm.empty, firsts=Dm.empty, follows=Dm.empty}
+
+instance Eq FollowAction where 
+    a == b = terminals a == terminals b
+
+instance Semigroup FollowAction where 
+    FollowAction {terminals=at, firsts=afi, follows=afo} 
+        <> FollowAction {terminals=bt, firsts=bfi, follows=bfo} = 
+                FollowAction {terminals= Dm.unionWith Set.union at bt, firsts= Dm.unionWith Set.union afi bfi, follows= Dm.unionWith Set.union afo bfo}
+
+analyze :: String -> Rule -> FollowAction
+analyze s [V va] 
+    | s == startRule = FollowAction {terminals=Dm.singleton s (Set.singleton EOF), firsts=Dm.empty, follows=Dm.singleton va (Set.singleton s)}
+    | otherwise = FollowAction {terminals=Dm.empty, firsts=Dm.empty, follows=Dm.singleton va (Set.singleton s)}
+analyze s ((V va):(V vb):rest) =
+        let newM = Dm.singleton va (Set.singleton vb) in 
+        FollowAction {terminals= Dm.empty, firsts=newM, follows=Dm.empty} <> analyze s (V vb:rest)
+analyze s ((V va):(T t):rest) =
+    let newM = Dm.singleton va (Set.singleton t) in 
+    FollowAction {terminals=newM, firsts=Dm.empty, follows=Dm.empty} <> analyze s rest
+analyze s (_:rest) = analyze s rest
+analyze _ _ = emptyFollowA
+
+-------------------- FIND -------------------- 
+findTable :: Grammar -> Dm.Map String (Set Token) 
+findTable g = Dm.foldlWithKey (\acc k v ->   Dm.insert k (find k v g) acc) Dm.empty g  
+
+findFromVar :: Grammar -> String -> Set Token 
+findFromVar g s = 
+    let l = g Dm.! s in 
+    find s l g
 
 find :: String -> [Rule] -> Grammar -> Set Token
 find s rs g = 
@@ -134,7 +304,3 @@ find s rs g =
         next lup
     else 
         tt
-
-
-
-
