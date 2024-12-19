@@ -24,18 +24,20 @@ startRule = "Stm"
 
 testParser :: IO () 
 testParser = do 
-    putStrLn ":::::::"
-    putStrLn "FindTable:"
-    print $ findTable test
-    putStrLn ":::::::"
-    putStrLn "FollowTable"
-    let res =  followTable test
-    print res 
-    putStrLn ":::::::"
-    let p = Position {prod = "S", rule = [V "S", V "A"], pos = 0, followSet = fromList [EOF]} 
+    let p = Position {prod = "", rule = [V "S"], pos = 0, followSet = fromList [EOF]} 
     let e =  Position {prod = "", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]} 
     --putStr $ prettyAuto . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
-    putStr $ prettyAuto . transition test . mergeClosures $ initialClosure test e 
+    let simplePDA =  transitionClosure simpleGrammar . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
+    let pda =  transitionClosure test . transition test . mergeClosures $ initialClosure test e 
+    let bug = transition test . mergeClosures . closure test $ fromList [Position {prod = "Term", rule = [T LeftParen, V "Exp", T RightParen], pos = 1, followSet = fromList [RightParen, Plus, Minus]}]
+    -- putStr $ prettyAuto bug
+    -- print $ length simplePDA
+    print $ length pda
+
+uniqueState :: Automaton -> Set IdState 
+uniqueState a = 
+    let (_, b) = unzip $ Dm.toList a in
+    fromList . concat . snd . unzip $ (unzip . Dm.toList) <$> b 
 
 simpleGrammar :: Grammar 
 simpleGrammar = 
@@ -69,13 +71,14 @@ class Pretty a where
     pretty :: a -> String
 
 prettyAuto :: Automaton -> String 
-prettyAuto = Dm.foldlWithKey (\acc k v -> acc ++ prettyState k ++ "with transitions\n" ++ prettyAA v) "Automaton:\n" 
+prettyAuto = fst . Dm.foldlWithKey (\(acc, i) k v -> (acc ++ "State " ++ show i ++ "\n"++ prettyState 0 k ++ "with transitions\n" ++ prettyAA v, i+1)) ("Automaton:\n", 0)
 
-prettyAA :: Dm.Map Atom State -> String 
-prettyAA  = Dm.foldlWithKey (\acc k v -> acc ++ "transition: " ++ pretty k ++ "\n" ++ prettyState v) "" 
+prettyAA :: Dm.Map Atom IdState -> String 
+prettyAA  = Dm.foldlWithKey (\acc k v -> acc ++ pretty k ++ " =>\n "++ prettyState 1 v) "" 
 
-prettyState :: State -> String
-prettyState = Set.foldl (\acc p -> acc ++ pretty p ++ "\n") ""
+prettyState :: Int -> IdState -> String
+prettyState i (S (s, idx)) = let indent = replicate (4*i) ' ' in
+    Set.foldl (\acc p -> acc ++ indent ++ pretty p ++ "\n" ) "" s
 
 instance Pretty Position where 
     pretty p = 
@@ -96,19 +99,24 @@ instance Pretty Atom where
     pretty (T t) = show t
     pretty (V v) = v
 -------------------- GOTO --------------------
-type Automaton = Dm.Map State (Dm.Map Atom State)
+type Automaton = Dm.Map IdState (Dm.Map Atom IdState )
 
 --  findTransitionTargets . mergeClosures . initialClosure test $ Position {prod = "Stm", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]}
 
+--   prettyAuto . transition test . mergeClosures . initialClosure test $ Position {prod = "", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]}
 
---  >>> prettyAuto . transition simpleGrammar . mergeClosures . initialClosure simpleGrammar $ Position {prod = "S", rule = [V "S", V "A"], pos = 0, followSet = fromList [EOF]}
--- "S ->   S A\nS ->   S B\n\nS\nA ->   Ident {ident = \"a\"}\nB ->   Ident {ident = \"b\"}\nS ->   S A\nS ->   S B\n"
+--  findTransitionTargets . mergeClosures . closure test $ fromList [Position {prod = "Term", rule = [T LeftParen, V "Exp", T RightParen], pos = 1, followSet = fromList [RightParen, Plus, Minus]}]
+-- fromList [(T (Ident {ident = "String"}),fromList [Position {prod = "Term", rule = [T (Ident {ident = "String"})], pos = 1, followSet = fromList [RightParen,Plus,Minus]}]),(T LeftParen,fromList [Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 1, followSet = fromList [RightParen,Plus,Minus]}]),(T (Literal {num = 1}),fromList [Position {prod = "Term", rule = [T (Literal {num = 1})], pos = 1, followSet = fromList [RightParen,Plus,Minus]}]),(V "Exp",fromList [Position {prod = "Exp", rule = [V "Exp",V "Op",V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]},Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}]),(V "Term",fromList [Position {prod = "Exp", rule = [V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]}])]
 
--- closure simpleGrammar $ fromList [Position {prod = "S", rule = [V "S",V "A"], pos = 1, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}]
--- fromList [Position {prod = "A", rule = [T (Ident {ident = "a"})], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 1, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}]
 
-findTransitionTargets :: State -> Dm.Map Atom (Set Position)
-findTransitionTargets state = 
+
+--  closure test $ fromList [Position {prod = "Exp", rule = [V "Exp",V "Op",V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]},Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}]
+-- S (fromList [Position {prod = "Exp", rule = [V "Exp",V "Op",V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]},Position {prod = "Op", rule = [T Plus], pos = 0, followSet = fromList [Ident {ident = "String"},LeftParen,Literal {num = 1}]},Position {prod = "Op", rule = [T Minus], pos = 0, followSet = fromList [Ident {ident = "String"},LeftParen,Literal {num = 1}]}],0)
+
+
+
+findTransitionTargets :: IdState -> Dm.Map Atom (Set Position)
+findTransitionTargets (S (state, _)) = 
     let targets = Set.fromList . catMaybes  $ Set.foldl (\acc p -> 
                     let target =  rule p !? pos p in
                     target:acc
@@ -125,13 +133,25 @@ findTransitionTargets state =
                 Dm.unionWith union acc b
             ) Dm.empty targets
 
+transitionClosure :: Grammar -> Automaton -> Automaton
+transitionClosure g a = 
+    let res = Prelude.foldl (\acc (_, mas) ->  
+                let (_, states) = unzip $ Dm.toList mas in
+                let newA = Prelude.foldl(\acc' s -> acc' `Dm.union` transition g s) Dm.empty states
+                in
+                acc `Dm.union` newA 
+            ) a $ Dm.toList a 
+    in
+    if res == a then 
+        res 
+    else transitionClosure g res
 
-transition :: Grammar -> State -> Automaton 
-transition g state = 
+transition :: Grammar -> IdState -> Automaton 
+transition g state =
     let targets = findTransitionTargets state in 
-    let a = Prelude.foldl (\acc (a, set) -> 
-                                let newState = closure g set in
-                                let newM = Dm.singleton a newState in 
+    let a = Prelude.foldl (\acc (a', set) -> 
+                                let ns = closure g set in
+                                let newM = Dm.singleton a' ns in 
                                 Dm.union acc newM
                             ) Dm.empty $ Dm.toList targets
     in
@@ -143,20 +163,40 @@ data Position = Position {prod::String, rule::Rule, pos::Int, followSet :: Set T
 instance Eq Position where 
     a == b = 
         (prod a == prod b) && (rule a == rule b) && (pos a == pos b)
-type State = Set Position
+
+newtype StateWithId p = S (p, Int)
+    deriving (Show, Ord)
+
+instance Eq a => Eq (StateWithId a) where
+    S (a, _) == S (b, _)  = a == b
+
+idOfState :: IdState -> Int 
+idOfState (S(_, i)) = i
+type State = Set Position 
+
+type IdState = StateWithId State
+
+instance Functor StateWithId where 
+    fmap f (S (sp, i)) = S (f sp, i) 
+
+instance Applicative StateWithId where 
+    pure state = S (state, 0)
+    S (f, _) <*> S (s, j) = S (f s, j) 
+
+instance Monad StateWithId where 
+    S (state, i) >>= f = let S (b, j) = f state in S (b, j+i+j)
 
 incrementPos :: Position -> Position 
 incrementPos p = Position {prod=prod p, rule=rule p, pos= pos p + 1, followSet=followSet p} 
 
 
 -- >>>  mergeClosures $ initialClosure simpleGrammar $ Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]}
--- fromList [Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "B"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}]
+-- S (fromList [Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "B"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}],0)
 
-
---   mergeClosures $ closure test $ Position {prod = "Stm", rule = [V "Stm"], pos = 1, followSet = fromList [EOF]}
-
-mergeClosures :: State -> State 
-mergeClosures = helper . toList where 
+mergeClosures :: IdState -> IdState 
+mergeClosures i = 
+    let (S (a, _)) = i in 
+    pure $ helper $ toList a where 
     helper :: [Position] -> State 
     helper [] = Set.empty 
     helper (x:y:rest) 
@@ -170,11 +210,11 @@ fSet :: Grammar -> Atom -> Set Token
 fSet _ (T t)  = Set.singleton t 
 fSet g (V v) = findFromVar g v
 
-initialClosure :: Grammar -> Position -> State
+initialClosure :: Grammar -> Position -> IdState
 initialClosure g p = closure g initial where 
     initial = closureR g p
 
-closure :: Grammar -> State -> State 
+closure :: Grammar -> State -> IdState 
 closure g state = 
         let newState = Set.foldl (\acc po -> 
                     let cl = closureR g po in
@@ -182,9 +222,14 @@ closure g state =
                 ) Set.empty state 
         in
         if newState == state then 
-            mergeClosures newState 
+            mergeClosures (pure newState) 
         else 
             closure g newState
+
+
+-- >>> closureR test $ Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}
+-- fromList [Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}]
+
 
 closureR:: Grammar -> Position -> State
 closureR g p 
@@ -192,7 +237,7 @@ closureR g p
     | otherwise = 
         let locus = rule p !! pos p in
         case locus of 
-            T _ -> Set.empty
+            T _ -> Set.singleton p
             V var -> 
                 let lup = g Dm.! var in
                 let fset = 
