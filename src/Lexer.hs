@@ -2,8 +2,8 @@ module Lexer (lexicalAnalysis, Token(..)) where
 import Data.Char (digitToInt)
 
 
-data Token = Ident {ident :: String}
-    | LeftParen
+data Token = 
+     LeftParen
     | RightParen
     | RightBreacket
     | LeftBracket
@@ -14,8 +14,25 @@ data Token = Ident {ident :: String}
     | EOF
     | Let 
     | In
-    | Literal {num :: Int}
+    | Literal 
+    | Ident
+    | Return
     deriving (Show, Ord, Eq)
+
+data Content = S String | I Int | Nop
+
+newtype StreamToken a = StreamToken (a, Content)
+
+instance Show a => Show (StreamToken a) where 
+    show (StreamToken (a, S s)) = show a ++ " " ++ s 
+    show (StreamToken (a, I i)) = show a ++ " " ++ show i 
+    show (StreamToken (t, Nop)) = show t 
+ 
+instance Functor StreamToken where 
+    fmap f (StreamToken (a, mc)) = StreamToken (f a , mc)
+instance Applicative StreamToken where 
+    pure a = StreamToken (a, Nop)
+    StreamToken (f, _) <*> StreamToken (a, b) = StreamToken (f a, b)
 
 newtype Incrementer a = Incrementer (a, Int)
     deriving (Show)
@@ -36,9 +53,9 @@ singleCharTokens = ":()=+- ;\n"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
-lexicalAnalysis :: String -> [Token]
+lexicalAnalysis :: String -> [StreamToken Token]
 lexicalAnalysis =  helper 0 where 
-    helper :: Int -> String -> [Token]
+    helper :: Int -> String -> [StreamToken Token]
     helper _ [] = []
     helper toSkip s 
         | null (drop toSkip s) = [] 
@@ -52,36 +69,37 @@ lexicalAnalysis =  helper 0 where
 
 --- >>> findToken 'l' "eta = " 
 -- Incrementer (Let,3)
-findToken :: Char -> String -> Incrementer Token
-findToken ';' _ = return SemiColon 
-findToken '(' _ = return LeftParen  
-findToken ')' _ = return RightParen  
-findToken '{' _ = return LeftBracket  
-findToken '}' _ = return RightBreacket  
-findToken '=' _ = return Equal
-findToken '+' _ = return Plus
-findToken '-' _ = return Minus
+findToken :: Char -> String -> Incrementer (StreamToken Token)
+findToken ';' _ = return $ pure SemiColon 
+findToken '(' _ = return $ pure LeftParen  
+findToken ')' _ = return $ pure RightParen  
+findToken '{' _ = return $ pure LeftBracket  
+findToken '}' _ = return $ pure RightBreacket  
+findToken '=' _ = return $ pure Equal
+findToken '+' _ = return $ pure Plus
+findToken '-' _ = return $ pure Minus
 findToken '\n' (x:xs) = return ' ' >> findToken x xs
-findToken '\n' [] = return EOF
+findToken '\n' [] = return $ pure EOF
 findToken ' ' (x:xs) = return ' ' >> findToken x xs
 findToken c xs 
     | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs 
     | otherwise = checkIdentForReserved <$> findIdent "" c xs 
 
-identToLit :: Token -> Token 
-identToLit Ident {ident=s}= Literal {num=read s}
+identToLit :: StreamToken Token -> StreamToken Token 
+identToLit (StreamToken (Ident, S s))= StreamToken (Literal, I $ read s)
 identToLit a = a 
 
-checkIdentForReserved :: Token -> Token 
-checkIdentForReserved Ident {ident="let"} = Let
-checkIdentForReserved Ident {ident="in"} = In
+checkIdentForReserved :: StreamToken Token -> StreamToken Token 
+checkIdentForReserved (StreamToken (Ident, S "let")) = pure Let
+checkIdentForReserved (StreamToken (Ident, S "in")) = pure In
+checkIdentForReserved (StreamToken (Ident, S "return")) = pure Return
 checkIdentForReserved a = a
 
-findIdent :: String -> Char -> String -> Incrementer Token
-findIdent acc c [] = return Ident {ident=reverse (c:acc)}
-findIdent acc ' ' _ = return Ident {ident=reverse acc}
+findIdent :: String -> Char -> String -> Incrementer (StreamToken Token)
+findIdent acc c [] = return $ StreamToken (Ident, S $ reverse (c:acc))
+findIdent acc ' ' _ = return $ StreamToken (Ident,  S $ reverse acc)
 findIdent acc c (x:xs) 
-    | x `elem` singleCharTokens = return Ident {ident=reverse (c:acc)}
+    | x `elem` singleCharTokens = return $ StreamToken ( Ident, S $ reverse (c:acc))
     | otherwise = return c >> findIdent (c:acc) x xs
 
 

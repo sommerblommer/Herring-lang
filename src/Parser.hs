@@ -42,12 +42,12 @@ uniqueState a =
 simpleGrammar :: Grammar 
 simpleGrammar = 
     let s = Dm.singleton "S" [[V "S", V "A"], [V "S", V "B"]] in
-    let a = Dm.insert "A" [[T Ident {ident="a"}]] s in 
-    Dm.insert "B" [[T Ident {ident="b"}]] a  
+    let a = Dm.insert "A" [[T Ident ]] s in 
+    Dm.insert "B" [[T Ident ]] a  
 
 test :: Grammar
 test = 
-    let terms = Dm.singleton "Term" [[T Literal {num=1}], [T Ident {ident="String"}], [T LeftParen, V "Exp", T RightParen]]
+    let terms = Dm.singleton "Term" [[T Literal ], [T Ident ], [T LeftParen, V "Exp", T RightParen]]
     in 
     let ops = Dm.insert "Op" [[T Plus], [T Minus]] terms in
     let exps = 
@@ -94,8 +94,6 @@ instance Pretty Position where
         prettyPosRule _ _ _ = ""
 
 instance Pretty Atom where 
-    pretty (T Ident {ident=_}) = "Ident"
-    pretty (T Literal {num=_}) = "Literal"
     pretty (T t) = show t
     pretty (V v) = v
 -------------------- GOTO --------------------

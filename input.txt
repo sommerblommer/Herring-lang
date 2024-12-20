@@ -1,2 +1,2 @@
-let lettuce = 12 in
+let x = 12 in
 return x
