@@ -362,6 +362,7 @@ action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
             let nextState = (possibleTs Dm.! head newStateStack) Dm.! V (prod p)  
             --putStrLn $ "reduced " ++ show (pretty p)
             --print log 
+            putStrLn $ "stack snapshot " ++ show ps
             --putStrLn $ "reduced to\n"  ++ prettyState 0 nextState
             action g (nextState:newStateStack) newStack (st:tokens)
         Accept -> do
@@ -430,7 +431,7 @@ ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E exp):_:rest) =
     logStack (E exp:rest)  3
 ruleFuncs [V "Term"] ((E term):rest) = 
     logStack (E term:rest) 1
-ruleFuncs [V "Exp", V "Op", V "Term"] ((E lhs):(O o):(E rhs):rest) = 
+ruleFuncs [V "Exp", V "Op", V "Term"] ((E rhs):(O o):(E lhs):rest) = 
     logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
 ruleFuncs [V "Exp"] [E e] = 
     logStack ([Ps (Exp e)]) 1 
@@ -439,7 +440,7 @@ ruleFuncs [V "Stm"] [Ps e] =
 ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
     logStack (O Ast.Plus:rest) 1
 ruleFuncs [T Lexer.Minus] (Pt _:rest)=  
-    logStack (O Ast.Plus:rest) 1
+    logStack (O Ast.Minus:rest) 1
 ruleFuncs [T Lexer.Ident] (Pt ide:rest) = case ide of 
     StreamToken (_, Str str) -> 
         logStack (E IExp {ident=str}:rest) 1
