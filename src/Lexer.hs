@@ -1,4 +1,4 @@
-module Lexer (lexicalAnalysis, Token(..)) where
+module Lexer (lexicalAnalysis, Token(..), StreamToken(..), Content(..)) where
 import Data.Char (digitToInt)
 
 
@@ -19,12 +19,12 @@ data Token =
     | Return
     deriving (Show, Ord, Eq)
 
-data Content = S String | I Int | Nop
+data Content = Str String | I Int | Nop
 
 newtype StreamToken a = StreamToken (a, Content)
 
 instance Show a => Show (StreamToken a) where 
-    show (StreamToken (a, S s)) = show a ++ " " ++ s 
+    show (StreamToken (a, Str s)) = show a ++ " " ++ s 
     show (StreamToken (a, I i)) = show a ++ " " ++ show i 
     show (StreamToken (t, Nop)) = show t 
  
@@ -86,20 +86,20 @@ findToken c xs
     | otherwise = checkIdentForReserved <$> findIdent "" c xs 
 
 identToLit :: StreamToken Token -> StreamToken Token 
-identToLit (StreamToken (Ident, S s))= StreamToken (Literal, I $ read s)
+identToLit (StreamToken (Ident, Str s))= StreamToken (Literal, I $ read s)
 identToLit a = a 
 
 checkIdentForReserved :: StreamToken Token -> StreamToken Token 
-checkIdentForReserved (StreamToken (Ident, S "let")) = pure Let
-checkIdentForReserved (StreamToken (Ident, S "in")) = pure In
-checkIdentForReserved (StreamToken (Ident, S "return")) = pure Return
+checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
+checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
+checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
 checkIdentForReserved a = a
 
 findIdent :: String -> Char -> String -> Incrementer (StreamToken Token)
-findIdent acc c [] = return $ StreamToken (Ident, S $ reverse (c:acc))
-findIdent acc ' ' _ = return $ StreamToken (Ident,  S $ reverse acc)
+findIdent acc c [] = return $ StreamToken (Ident, Str $ reverse (c:acc))
+findIdent acc ' ' _ = return $ StreamToken (Ident,  Str $ reverse acc)
 findIdent acc c (x:xs) 
-    | x `elem` singleCharTokens = return $ StreamToken ( Ident, S $ reverse (c:acc))
+    | x `elem` singleCharTokens = return $ StreamToken ( Ident, Str $ reverse (c:acc))
     | otherwise = return c >> findIdent (c:acc) x xs
 
 

@@ -8,6 +8,6 @@ main :: IO ()
 main = do  
     file <- readFile "input.txt"
     print $ lexicalAnalysis file
-    --testParser
-    putStr "bruh"
+    parsed <- parse $ lexicalAnalysis file
+    print parsed 
 

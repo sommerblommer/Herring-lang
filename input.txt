@@ -1,2 +1,1 @@
-let x = 12 in
-return x
+1 + (2 - 3)

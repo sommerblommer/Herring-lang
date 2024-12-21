@@ -1,9 +1,12 @@
-module Parser (testParser) where 
+module Parser (testParser, parse) where 
 import Data.Set as Set
-import Lexer (Token(..))
+import Lexer (Token(..), StreamToken(..), Content(..))
 import qualified Data.Map.Strict as Dm
 import Data.Maybe (catMaybes)
-import qualified Data.Foldable as D
+import Ast 
+import Control.Monad.Writer 
+import Control.Monad.Writer (WriterT(runWriterT))
+import Data.Bifunctor (Bifunctor(bimap))
 
 type Rule = [Atom]
 
@@ -18,26 +21,23 @@ instance Eq Atom where
 
 type Grammar = Dm.Map String [Rule]
 
-
 startRule :: String 
 startRule = "Stm"
 
+startPosition :: Position 
+startPosition = Position {prod="", rule=[V "Stm"], pos=0, followSet= singleton EOF}
+
 testParser :: IO () 
 testParser = do 
-    let p = Position {prod = "", rule = [V "S"], pos = 0, followSet = fromList [EOF]} 
     let e =  Position {prod = "", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]} 
     --putStr $ prettyAuto . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
-    let simplePDA =  transitionClosure simpleGrammar . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
+ --   let simplePDA =  transitionClosure simpleGrammar . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
     let pda =  transitionClosure test . transition test . mergeClosures $ initialClosure test e 
-    let bug = transition test . mergeClosures . closure test $ fromList [Position {prod = "Term", rule = [T LeftParen, V "Exp", T RightParen], pos = 1, followSet = fromList [RightParen, Plus, Minus]}]
+--    let bug = transition test . mergeClosures . closure test $ fromList [Position {prod = "Term", rule = [T LeftParen, V "Exp", T RightParen], pos = 1, followSet = fromList [RightParen, Plus, Minus]}]
     -- putStr $ prettyAuto bug
     -- print $ length simplePDA
     print $ length pda
 
-uniqueState :: Automaton -> Set IdState 
-uniqueState a = 
-    let (_, b) = unzip $ Dm.toList a in
-    fromList . concat . snd . unzip $ (unzip . Dm.toList) <$> b 
 
 simpleGrammar :: Grammar 
 simpleGrammar = 
@@ -49,13 +49,13 @@ test :: Grammar
 test = 
     let terms = Dm.singleton "Term" [[T Literal ], [T Ident ], [T LeftParen, V "Exp", T RightParen]]
     in 
-    let ops = Dm.insert "Op" [[T Plus], [T Minus]] terms in
+    let ops = Dm.insert "Op" [[T Lexer.Plus], [T Lexer.Minus]] terms in
     let exps = 
             Dm.insert "Exp" [[V "Exp", V "Op", V "Term"]
             , [V "Term"]
             ] ops
     in
-    let stm = Dm.insert "Stm" [[V "Stm", V "Exp"], [V "Exp"]] exps in
+    let stm = Dm.insert "Stm" [[V "Exp"]] exps in
     stm
 
 isToken :: Atom -> Bool 
@@ -73,11 +73,11 @@ class Pretty a where
 prettyAuto :: Automaton -> String 
 prettyAuto = fst . Dm.foldlWithKey (\(acc, i) k v -> (acc ++ "State " ++ show i ++ "\n"++ prettyState 0 k ++ "with transitions\n" ++ prettyAA v, i+1)) ("Automaton:\n", 0)
 
-prettyAA :: Dm.Map Atom IdState -> String 
+prettyAA :: Dm.Map Atom State -> String 
 prettyAA  = Dm.foldlWithKey (\acc k v -> acc ++ pretty k ++ " =>\n "++ prettyState 1 v) "" 
 
-prettyState :: Int -> IdState -> String
-prettyState i (S (s, idx)) = let indent = replicate (4*i) ' ' in
+prettyState :: Int -> State -> String
+prettyState i s = let indent = replicate (4*i) ' ' in
     Set.foldl (\acc p -> acc ++ indent ++ pretty p ++ "\n" ) "" s
 
 instance Pretty Position where 
@@ -97,24 +97,22 @@ instance Pretty Atom where
     pretty (T t) = show t
     pretty (V v) = v
 -------------------- GOTO --------------------
-type Automaton = Dm.Map IdState (Dm.Map Atom IdState )
+type Automaton = Dm.Map State (Dm.Map Atom State )
 
 --  findTransitionTargets . mergeClosures . initialClosure test $ Position {prod = "Stm", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]}
 
 --   prettyAuto . transition test . mergeClosures . initialClosure test $ Position {prod = "", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]}
 
 --  findTransitionTargets . mergeClosures . closure test $ fromList [Position {prod = "Term", rule = [T LeftParen, V "Exp", T RightParen], pos = 1, followSet = fromList [RightParen, Plus, Minus]}]
--- fromList [(T (Ident {ident = "String"}),fromList [Position {prod = "Term", rule = [T (Ident {ident = "String"})], pos = 1, followSet = fromList [RightParen,Plus,Minus]}]),(T LeftParen,fromList [Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 1, followSet = fromList [RightParen,Plus,Minus]}]),(T (Literal {num = 1}),fromList [Position {prod = "Term", rule = [T (Literal {num = 1})], pos = 1, followSet = fromList [RightParen,Plus,Minus]}]),(V "Exp",fromList [Position {prod = "Exp", rule = [V "Exp",V "Op",V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]},Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}]),(V "Term",fromList [Position {prod = "Exp", rule = [V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]}])]
 
 
 
 --  closure test $ fromList [Position {prod = "Exp", rule = [V "Exp",V "Op",V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]},Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}]
--- S (fromList [Position {prod = "Exp", rule = [V "Exp",V "Op",V "Term"], pos = 1, followSet = fromList [RightParen,Plus,Minus]},Position {prod = "Op", rule = [T Plus], pos = 0, followSet = fromList [Ident {ident = "String"},LeftParen,Literal {num = 1}]},Position {prod = "Op", rule = [T Minus], pos = 0, followSet = fromList [Ident {ident = "String"},LeftParen,Literal {num = 1}]}],0)
 
 
 
-findTransitionTargets :: IdState -> Dm.Map Atom (Set Position)
-findTransitionTargets (S (state, _)) = 
+findTransitionTargets :: State -> Dm.Map Atom (Set Position)
+findTransitionTargets state = 
     let targets = Set.fromList . catMaybes  $ Set.foldl (\acc p -> 
                     let target =  rule p !? pos p in
                     target:acc
@@ -144,7 +142,7 @@ transitionClosure g a =
         res 
     else transitionClosure g res
 
-transition :: Grammar -> IdState -> Automaton 
+transition :: Grammar -> State -> Automaton 
 transition g state =
     let targets = findTransitionTargets state in 
     let a = Prelude.foldl (\acc (a', set) -> 
@@ -155,6 +153,12 @@ transition g state =
     in
     Dm.singleton state a 
 
+findLoci :: State -> Set Atom 
+findLoci s =   Set.fromList . catMaybes  $ Set.foldl (\acc p -> 
+                    let target =  rule p !? pos p in
+                    target:acc
+                ) [] s
+
 -------------------- Closure --------------------
 data Position = Position {prod::String, rule::Rule, pos::Int, followSet :: Set Token}
     deriving (Ord, Show)
@@ -162,27 +166,8 @@ instance Eq Position where
     a == b = 
         (prod a == prod b) && (rule a == rule b) && (pos a == pos b)
 
-newtype StateWithId p = S (p, Int)
-    deriving (Show, Ord)
-
-instance Eq a => Eq (StateWithId a) where
-    S (a, _) == S (b, _)  = a == b
-
-idOfState :: IdState -> Int 
-idOfState (S(_, i)) = i
 type State = Set Position 
 
-type IdState = StateWithId State
-
-instance Functor StateWithId where 
-    fmap f (S (sp, i)) = S (f sp, i) 
-
-instance Applicative StateWithId where 
-    pure state = S (state, 0)
-    S (f, _) <*> S (s, j) = S (f s, j) 
-
-instance Monad StateWithId where 
-    S (state, i) >>= f = let S (b, j) = f state in S (b, j+i+j)
 
 incrementPos :: Position -> Position 
 incrementPos p = Position {prod=prod p, rule=rule p, pos= pos p + 1, followSet=followSet p} 
@@ -191,10 +176,8 @@ incrementPos p = Position {prod=prod p, rule=rule p, pos= pos p + 1, followSet=f
 -- >>>  mergeClosures $ initialClosure simpleGrammar $ Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]}
 -- S (fromList [Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "B"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}],0)
 
-mergeClosures :: IdState -> IdState 
-mergeClosures i = 
-    let (S (a, _)) = i in 
-    pure $ helper $ toList a where 
+mergeClosures :: State -> State 
+mergeClosures = helper . toList  where 
     helper :: [Position] -> State 
     helper [] = Set.empty 
     helper (x:y:rest) 
@@ -208,11 +191,11 @@ fSet :: Grammar -> Atom -> Set Token
 fSet _ (T t)  = Set.singleton t 
 fSet g (V v) = findFromVar g v
 
-initialClosure :: Grammar -> Position -> IdState
+initialClosure :: Grammar -> Position -> State
 initialClosure g p = closure g initial where 
     initial = closureR g p
 
-closure :: Grammar -> State -> IdState 
+closure :: Grammar -> State -> State 
 closure g state = 
         let newState = Set.foldl (\acc po -> 
                     let cl = closureR g po in
@@ -220,7 +203,7 @@ closure g state =
                 ) Set.empty state 
         in
         if newState == state then 
-            mergeClosures (pure newState) 
+            mergeClosures newState 
         else 
             closure g newState
 
@@ -347,3 +330,126 @@ find s rs g =
         next lup
     else 
         tt
+-------------------- Actions --------------------
+data Action = Accept | Shift | Reduce
+
+parse :: [StreamToken Token] -> IO Stm 
+parse tokens = do 
+    let grammar = test 
+    let initialState = initialClosure grammar startPosition 
+    actions <-  action grammar [initialState] [] tokens 
+    return $ lastParse actions
+
+(+>) :: a -> [a] -> [a] 
+(+>) a as = as ++ [a]
+
+
+action :: Grammar -> [State] -> ParseStack ->  [StreamToken Token] -> IO ParseStack 
+action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
+    --print t
+    let (nextAction, p) = findAction state st  
+    case nextAction of 
+        Shift -> do
+            let possibleTs = transition g state 
+            let nextState = (possibleTs Dm.! state) Dm.! T t  
+            --print $ "shifted " ++ show t 
+            --putStrLn $ "from state\n " ++ prettyState 0 state ++ "\nto\n" ++ prettyState 0 nextState
+            action g (nextState:state:stateStack) (Pt st:ps) tokens
+        Reduce -> do
+            let ((newStack, toPop), log) = runWriter $ ruleFuncs (rule p) ps  
+            let newStateStack = Prelude.drop toPop (state:stateStack)
+            let possibleTs = transition g $ head newStateStack 
+            let nextState = (possibleTs Dm.! head newStateStack) Dm.! V (prod p)  
+            --putStrLn $ "reduced " ++ show (pretty p)
+            --print log 
+            --putStrLn $ "reduced to\n"  ++ prettyState 0 nextState
+            action g (nextState:newStateStack) newStack (st:tokens)
+        Accept -> do
+            let ((newStack, _), log) = runWriter $ ruleFuncs (rule p) ps  
+            putStrLn "accepted"
+            --print log 
+            return newStack
+action _ _ _ _ = error "something went wrong bruhh"
+    
+
+
+
+findAction :: State -> StreamToken Token -> (Action, Position) 
+findAction state (StreamToken (token, _)) = 
+    if isAccepting state token then (Accept, startPosition) else 
+    let (s, r) = bimap catMaybes  catMaybes $ Set.foldl (\(acc, acc2) p -> 
+                            if length (rule p) == pos p && elem token (followSet p) then  
+                                (acc, Just p:acc2)
+                            else 
+                                let res = rule p !? pos p >>= 
+                                        (\t ->
+                                            if t == T token then 
+                                                Just p
+                                            else 
+                                                Nothing
+                                        )
+                                in
+                                (res:acc, acc2)
+                        ) ([], []) state
+    in
+    case (s, r) of 
+        (p:_, []) -> (Shift, p)
+        ([],  p:_) -> (Reduce, p)
+        (p:_, p2:_) -> error $ "Shift/Reduce in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
+        (_ , _) -> error "undefined in findAction"
+
+isAccepting :: State -> Token -> Bool
+isAccepting state t  
+    | t /= EOF = False 
+    | otherwise = 
+        let temp =  Set.foldl (\acc p -> 
+                                if length (rule p) == pos p && EOF `elem` followSet p && rule p == rule startPosition then 
+                                    Just p
+                                else 
+                                    acc
+                            ) Nothing state
+        in
+            case temp of 
+                Just _ -> True
+                Nothing -> False
+
+lastParse :: ParseStack -> Stm 
+lastParse [Ps s] = s 
+lastParse e = error $ "ot noewrnt\n" ++ show e
+
+data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr
+    deriving (Show)
+type ParseStack = [ParseItem]
+
+
+logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
+logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
+
+ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
+ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E exp):_:rest) = 
+    logStack (E exp:rest)  3
+ruleFuncs [V "Term"] ((E term):rest) = 
+    logStack (E term:rest) 1
+ruleFuncs [V "Exp", V "Op", V "Term"] ((E lhs):(O o):(E rhs):rest) = 
+    logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
+ruleFuncs [V "Exp"] [E e] = 
+    logStack ([Ps (Exp e)]) 1 
+ruleFuncs [V "Stm"] [Ps e] = 
+    logStack [Ps e] 0
+ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
+    logStack (O Ast.Plus:rest) 1
+ruleFuncs [T Lexer.Minus] (Pt _:rest)=  
+    logStack (O Ast.Plus:rest) 1
+ruleFuncs [T Lexer.Ident] (Pt ide:rest) = case ide of 
+    StreamToken (_, Str str) -> 
+        logStack (E IExp {ident=str}:rest) 1
+    _ -> error "wrong content of token"
+ruleFuncs [T Lexer.Literal] (Pt ide:rest) = case ide of 
+    StreamToken (_, I i) -> 
+        logStack (E LitExp {lit= LI i}:rest) 1
+    _ -> error "wrong content of token"
+ruleFuncs r ps = error $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
+
+
+
+
