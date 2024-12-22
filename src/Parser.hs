@@ -5,8 +5,8 @@ import qualified Data.Map.Strict as Dm
 import Data.Maybe (catMaybes)
 import Ast 
 import Control.Monad.Writer 
-import Control.Monad.Writer (WriterT(runWriterT))
 import Data.Bifunctor (Bifunctor(bimap))
+import Data.Text (pack, splitOn, breakOn, Text, takeWhile, head, unpack)
 
 type Rule = [Atom]
 
@@ -174,7 +174,7 @@ incrementPos p = Position {prod=prod p, rule=rule p, pos= pos p + 1, followSet=f
 
 
 -- >>>  mergeClosures $ initialClosure simpleGrammar $ Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]}
--- S (fromList [Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]},Position {prod = "S", rule = [V "S",V "B"], pos = 0, followSet = fromList [Ident {ident = "a"},Ident {ident = "b"},EOF]}],0)
+-- fromList [Position {prod = "S", rule = [V "S"], pos = 0, followSet = fromList [EOF]},Position {prod = "S", rule = [V "S",V "A"], pos = 0, followSet = fromList [EOF,Ident]},Position {prod = "S", rule = [V "S",V "B"], pos = 0, followSet = fromList [EOF,Ident]}]
 
 mergeClosures :: State -> State 
 mergeClosures = helper . toList  where 
@@ -209,7 +209,26 @@ closure g state =
 
 
 -- >>> closureR test $ Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}
--- fromList [Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}]
+-- Ambiguous occurrence `Minus'
+-- It could refer to
+--    either `Lexer.Minus',
+--           imported from `Lexer' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:3:15-23
+--           (and originally defined
+--              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Lexer.hs:12:7-11)
+--        or `Ast.Minus',
+--           imported from `Ast' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:6:1-10
+--           (and originally defined
+--              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Ast.hs:5:18-22)
+-- Ambiguous occurrence `Plus'
+-- It could refer to
+--    either `Lexer.Plus',
+--           imported from `Lexer' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:3:15-23
+--           (and originally defined
+--              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Lexer.hs:11:7-10)
+--        or `Ast.Plus',
+--           imported from `Ast' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:6:1-10
+--           (and originally defined
+--              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Ast.hs:5:11-14)
 
 
 closureR:: Grammar -> Position -> State
@@ -335,7 +354,8 @@ data Action = Accept | Shift | Reduce
 
 parse :: [StreamToken Token] -> IO Stm 
 parse tokens = do 
-    let grammar = test 
+    g <- readFile "grammar.txt"
+    let grammar = parseGrammar g 
     let initialState = initialClosure grammar startPosition 
     actions <-  action grammar [initialState] [] tokens 
     return $ lastParse actions
@@ -358,8 +378,8 @@ action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
         Reduce -> do
             let ((newStack, toPop), log) = runWriter $ ruleFuncs (rule p) ps  
             let newStateStack = Prelude.drop toPop (state:stateStack)
-            let possibleTs = transition g $ head newStateStack 
-            let nextState = (possibleTs Dm.! head newStateStack) Dm.! V (prod p)  
+            let possibleTs = transition g $ Prelude.head newStateStack 
+            let nextState = (possibleTs Dm.! Prelude.head newStateStack) Dm.! V (prod p)  
             --putStrLn $ "reduced " ++ show (pretty p)
             --print log 
             putStrLn $ "stack snapshot " ++ show ps
@@ -439,6 +459,8 @@ ruleFuncs [V "Stm"] [Ps e] =
     logStack [Ps e] 0
 ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
     logStack (O Ast.Plus:rest) 1
+ruleFuncs [T return, V "Exp"] ((E e):(Pt r):rest) = 
+    logStack (Ps (Ast.Return e):rest) 2
 ruleFuncs [T Lexer.Minus] (Pt _:rest)=  
     logStack (O Ast.Minus:rest) 1
 ruleFuncs [T Lexer.Ident] (Pt ide:rest) = case ide of 
@@ -451,6 +473,43 @@ ruleFuncs [T Lexer.Literal] (Pt ide:rest) = case ide of
     _ -> error "wrong content of token"
 ruleFuncs r ps = error $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
 
+-------------------- Generating Grammar --------------------
 
+parseGrammar :: String -> Grammar 
+parseGrammar s = 
+    let ls = Prelude.filter (/= "") $ lines s in
+    let asTxt = pack <$> ls in
+    Prelude.foldl (\acc t -> 
+        Dm.unionWith (++) (parseLine t) acc
+    ) Dm.empty asTxt
+
+
+
+
+
+parseLine :: Text -> Grammar 
+parseLine text = 
+    let fs = splitOn (pack "->") text in 
+    case fs of 
+        [l, r] -> 
+            let l' = unpack $ Data.Text.takeWhile (/= ' ') l in 
+            let r' = fmap parseAtom $ Prelude.filter (/= pack "") $ splitOn (pack " ") r in  
+            Dm.singleton l' [r']
+        e -> error $ "kodivslænk" ++ show e
+
+parseAtom :: Text -> Atom 
+parseAtom text 
+    | Data.Text.head text `elem` ['A'..'Z'] = 
+        V (unpack text)
+    | otherwise = case unpack text of 
+        "literal" -> T Literal 
+        "ident" -> T Ident 
+        "plus" -> T Lexer.Plus 
+        "minus" -> T Lexer.Minus
+        "return" -> T Lexer.Return
+        "(" -> T LeftParen 
+        ")" -> T RightParen
+        e -> error $ "mising data types to parse to for: " ++ e
+    
 
 

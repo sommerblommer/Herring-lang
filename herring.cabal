@@ -39,8 +39,8 @@ library
   build-depends:
       base >=4.7 && <5
     , containers
-    , monoidal-containers
     , mtl
+    , text
   default-language: Haskell2010
 
 executable herring-exe
@@ -56,8 +56,8 @@ executable herring-exe
       base >=4.7 && <5
     , containers
     , herring
-    , monoidal-containers
     , mtl
+    , text
   default-language: Haskell2010
 
 test-suite herring-test
@@ -74,6 +74,6 @@ test-suite herring-test
       base >=4.7 && <5
     , containers
     , herring
-    , monoidal-containers
     , mtl
+    , text
   default-language: Haskell2010
