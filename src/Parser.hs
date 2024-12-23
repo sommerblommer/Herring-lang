@@ -1,4 +1,4 @@
-module Parser (testParser, parse) where 
+module Parser (parse) where 
 import Data.Set as Set
 import Lexer (Token(..), StreamToken(..), Content(..))
 import qualified Data.Map.Strict as Dm
@@ -22,21 +22,11 @@ instance Eq Atom where
 type Grammar = Dm.Map String [Rule]
 
 startRule :: String 
-startRule = "Stm"
+startRule = "Ast"
 
 startPosition :: Position 
-startPosition = Position {prod="", rule=[V "Stm"], pos=0, followSet= singleton EOF}
+startPosition = Position {prod="", rule=[V "Ast"], pos=0, followSet= singleton EOF}
 
-testParser :: IO () 
-testParser = do 
-    let e =  Position {prod = "", rule = [V "Stm"], pos = 0, followSet = fromList [EOF]} 
-    --putStr $ prettyAuto . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
- --   let simplePDA =  transitionClosure simpleGrammar . transition simpleGrammar . mergeClosures $ initialClosure simpleGrammar p 
-    let pda =  transitionClosure test . transition test . mergeClosures $ initialClosure test e 
---    let bug = transition test . mergeClosures . closure test $ fromList [Position {prod = "Term", rule = [T LeftParen, V "Exp", T RightParen], pos = 1, followSet = fromList [RightParen, Plus, Minus]}]
-    -- putStr $ prettyAuto bug
-    -- print $ length simplePDA
-    print $ length pda
 
 
 simpleGrammar :: Grammar 
@@ -239,18 +229,21 @@ closureR g p
         case locus of 
             T _ -> Set.singleton p
             V var -> 
-                let lup = g Dm.! var in
-                let fset = 
-                        if length (rule p) > (pos p + 1) then
-                            let next = rule p !! (pos p + 1) in
-                            fSet g next 
-                        else 
-                            followSet p
-                in
-                Prelude.foldl(\acc r -> 
-                    let pp = Position {prod=var, rule=r, pos=0, followSet=fset} in
-                    Set.insert pp acc
-                ) (Set.singleton p) lup
+                let tlup = g Dm.!? var in
+                case tlup of
+                Nothing -> error $ "Non-Term " ++ show var ++ " has no rules"
+                Just lup -> 
+                    let fset = 
+                            if length (rule p) > (pos p + 1) then
+                                let next = rule p !! (pos p + 1) in
+                                fSet g next 
+                            else 
+                                followSet p
+                    in
+                    Prelude.foldl(\acc r -> 
+                        let pp = Position {prod=var, rule=r, pos=0, followSet=fset} in
+                        Set.insert pp acc
+                    ) (Set.singleton p) lup
 
 generatePositions :: String -> [Rule] ->  Set Position
 generatePositions  s = 
@@ -333,8 +326,10 @@ findTable g = Dm.foldlWithKey (\acc k v ->   Dm.insert k (find k v g) acc) Dm.em
 
 findFromVar :: Grammar -> String -> Set Token 
 findFromVar g s = 
-    let l = g Dm.! s in 
-    find s l g
+    let l = g Dm.!? s in 
+    case l of 
+    Just l' -> find s l' g
+    Nothing -> error "Dm.! in findFromVar"
 
 find :: String -> [Rule] -> Grammar -> Set Token
 find s rs g = 
@@ -351,44 +346,56 @@ find s rs g =
         tt
 -------------------- Actions --------------------
 data Action = Accept | Shift | Reduce
+    deriving (Show)
 
-parse :: [StreamToken Token] -> IO Stm 
+parse :: [StreamToken Token] -> IO Ast 
 parse tokens = do 
     g <- readFile "grammar.txt"
     let grammar = parseGrammar g 
+    print grammar
     let initialState = initialClosure grammar startPosition 
+    let t =  transitionClosure grammar . transition grammar . mergeClosures $ initialState 
+    print $ length t
     actions <-  action grammar [initialState] [] tokens 
     return $ lastParse actions
 
-(+>) :: a -> [a] -> [a] 
-(+>) a as = as ++ [a]
 
 
 action :: Grammar -> [State] -> ParseStack ->  [StreamToken Token] -> IO ParseStack 
 action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
-    --print t
+    print t
+    putStrLn $ "stack snapshot: " ++ show ps
+    putStrLn $ "current state:\n" ++ prettyState 0 state
     let (nextAction, p) = findAction state st  
     case nextAction of 
         Shift -> do
+            putStrLn "in shift"
             let possibleTs = transition g state 
-            let nextState = (possibleTs Dm.! state) Dm.! T t  
-            --print $ "shifted " ++ show t 
-            --putStrLn $ "from state\n " ++ prettyState 0 state ++ "\nto\n" ++ prettyState 0 nextState
-            action g (nextState:state:stateStack) (Pt st:ps) tokens
+            let nextStatet = (let pts = possibleTs Dm.!? state in 
+                                case pts of 
+                                Nothing -> error "no possible state"
+                                Just res -> res) Dm.!? T t  
+            case nextStatet of 
+                Nothing -> error "in shift cant find next state"
+                Just nexState ->
+                    action g (nexState:state:stateStack) (Pt st:ps) tokens
         Reduce -> do
+            putStrLn "in rduce"
             let ((newStack, toPop), log) = runWriter $ ruleFuncs (rule p) ps  
             let newStateStack = Prelude.drop toPop (state:stateStack)
             let possibleTs = transition g $ Prelude.head newStateStack 
             let nextState = (possibleTs Dm.! Prelude.head newStateStack) Dm.! V (prod p)  
-            --putStrLn $ "reduced " ++ show (pretty p)
-            --print log 
-            putStrLn $ "stack snapshot " ++ show ps
-            --putStrLn $ "reduced to\n"  ++ prettyState 0 nextState
-            action g (nextState:newStateStack) newStack (st:tokens)
+            let nextStatet = (let pts = possibleTs Dm.!? Prelude.head newStateStack in 
+                                case pts of 
+                                Nothing -> error "no possible state"
+                                Just res -> res) Dm.!? V (prod p)  
+            case nextStatet of 
+                Nothing -> error "in reduce cant find next state, probably cause by misaligned stack"
+                Just nextState ->
+                    action g (nextState:newStateStack) newStack (st:tokens)
         Accept -> do
             let ((newStack, _), log) = runWriter $ ruleFuncs (rule p) ps  
             putStrLn "accepted"
-            --print log 
             return newStack
 action _ _ _ _ = error "something went wrong bruhh"
     
@@ -417,7 +424,7 @@ findAction state (StreamToken (token, _)) =
         (p:_, []) -> (Shift, p)
         ([],  p:_) -> (Reduce, p)
         (p:_, p2:_) -> error $ "Shift/Reduce in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
-        (_ , _) -> error "undefined in findAction"
+        (p , p2) -> error $ "undefined in findAction\nstate: " ++ prettyState 0 state ++ "\nStreamToken: " ++ show token
 
 isAccepting :: State -> Token -> Bool
 isAccepting state t  
@@ -434,11 +441,11 @@ isAccepting state t
                 Just _ -> True
                 Nothing -> False
 
-lastParse :: ParseStack -> Stm 
-lastParse [Ps s] = s 
+lastParse :: ParseStack -> Ast 
+lastParse [Pa a] = a 
 lastParse e = error $ "ot noewrnt\n" ++ show e
 
-data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr
+data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -447,6 +454,12 @@ logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
 logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
+ruleFuncs [V "Ast"] (Pa a:rest) = 
+    logStack ([Pa a]) 1
+ruleFuncs [V "Ast", V "Stm"] (Ps s:Ps a:rest) = 
+    logStack (Pa [a, s]:rest) 2
+ruleFuncs [T Let, T Ident, T Equal, V "Exp", T In] (_:E e:_:Pt (StreamToken (_, Str str)):_:rest) = 
+    logStack (Ps (LetIn str e):rest)  5
 ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E exp):_:rest) = 
     logStack (E exp:rest)  3
 ruleFuncs [V "Term"] ((E term):rest) = 
@@ -456,10 +469,10 @@ ruleFuncs [V "Exp", V "Op", V "Term"] ((E rhs):(O o):(E lhs):rest) =
 ruleFuncs [V "Exp"] [E e] = 
     logStack ([Ps (Exp e)]) 1 
 ruleFuncs [V "Stm"] [Ps e] = 
-    logStack [Ps e] 0
+    logStack [Ps e] 1
 ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
     logStack (O Ast.Plus:rest) 1
-ruleFuncs [T return, V "Exp"] ((E e):(Pt r):rest) = 
+ruleFuncs [T Lexer.Return, V "Exp"] ((E e):(Pt r):rest) = 
     logStack (Ps (Ast.Return e):rest) 2
 ruleFuncs [T Lexer.Minus] (Pt _:rest)=  
     logStack (O Ast.Minus:rest) 1
@@ -509,6 +522,9 @@ parseAtom text
         "return" -> T Lexer.Return
         "(" -> T LeftParen 
         ")" -> T RightParen
+        "let" -> T Let
+        "in" -> T In
+        "=" -> T Equal 
         e -> error $ "mising data types to parse to for: " ++ e
     
 

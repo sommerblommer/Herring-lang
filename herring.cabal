@@ -29,6 +29,7 @@ library
       Lexer
       Lib
       Parser
+      TypedAst
   other-modules:
       Paths_herring
   autogen-modules:
