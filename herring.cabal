@@ -29,6 +29,7 @@ library
       Lexer
       Lib
       Parser
+      TypeCheck
       TypedAst
   other-modules:
       Paths_herring

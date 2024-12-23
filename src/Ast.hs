@@ -1,4 +1,4 @@
-module Ast where 
+module Ast  where 
 
 data Lit = LI Int | LB Bool 
 
