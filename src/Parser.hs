@@ -7,6 +7,7 @@ import Ast
 import Control.Monad.Writer 
 import Data.Bifunctor (Bifunctor(bimap))
 import Data.Text (pack, splitOn, breakOn, Text, takeWhile, head, unpack)
+import Data.Data (Fixity(Prefix))
 
 type Rule = [Atom]
 
@@ -356,20 +357,19 @@ parse tokens = do
     let initialState = initialClosure grammar startPosition 
     let t =  transitionClosure grammar . transition grammar . mergeClosures $ initialState 
     print $ length t
-    actions <-  action grammar [initialState] [] tokens 
+    let (actions, log)  = runWriter $ action grammar [initialState] [] tokens 
+    Prelude.foldr ((>>) . putStrLn) (putStrLn "") log
     return $ lastParse actions
 
 
 
-action :: Grammar -> [State] -> ParseStack ->  [StreamToken Token] -> IO ParseStack 
+action :: Grammar -> [State] -> ParseStack ->  [StreamToken Token] -> Writer [String] ParseStack 
 action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
-    print t
-    putStrLn $ "stack snapshot: " ++ show ps
-    putStrLn $ "current state:\n" ++ prettyState 0 state
+    tell ["stack snapshot: " ++ show ps]
     let (nextAction, p) = findAction state st  
     case nextAction of 
         Shift -> do
-            putStrLn "in shift"
+            tell ["in shift"]
             let possibleTs = transition g state 
             let nextStatet = (let pts = possibleTs Dm.!? state in 
                                 case pts of 
@@ -380,7 +380,7 @@ action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
                 Just nexState ->
                     action g (nexState:state:stateStack) (Pt st:ps) tokens
         Reduce -> do
-            putStrLn "in rduce"
+            tell ["in reduce"]
             let ((newStack, toPop), log) = runWriter $ ruleFuncs (rule p) ps  
             let newStateStack = Prelude.drop toPop (state:stateStack)
             let possibleTs = transition g $ Prelude.head newStateStack 
@@ -395,7 +395,7 @@ action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
                     action g (nextState:newStateStack) newStack (st:tokens)
         Accept -> do
             let ((newStack, _), log) = runWriter $ ruleFuncs (rule p) ps  
-            putStrLn "accepted"
+            tell ["accepted"]
             return newStack
 action _ _ _ _ = error "something went wrong bruhh"
     
@@ -424,7 +424,7 @@ findAction state (StreamToken (token, _)) =
         (p:_, []) -> (Shift, p)
         ([],  p:_) -> (Reduce, p)
         (p:_, p2:_) -> error $ "Shift/Reduce in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
-        (p , p2) -> error $ "undefined in findAction\nstate: " ++ prettyState 0 state ++ "\nStreamToken: " ++ show token
+        (_ , _) -> error $ "undefined in findAction\nstate: " ++ prettyState 0 state ++ "\nStreamToken: " ++ show token
 
 isAccepting :: State -> Token -> Bool
 isAccepting state t  
@@ -443,7 +443,7 @@ isAccepting state t
 
 lastParse :: ParseStack -> Ast 
 lastParse [Pa a] = a 
-lastParse e = error $ "ot noewrnt\n" ++ show e
+lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
 data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast
     deriving (Show)
@@ -455,7 +455,7 @@ logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs [V "Ast"] (Pa a:rest) = 
-    logStack ([Pa a]) 1
+    logStack [Pa a] 1
 ruleFuncs [V "Ast", V "Stm"] (Ps s:Ps a:rest) = 
     logStack (Pa [a, s]:rest) 2
 ruleFuncs [T Let, T Ident, T Equal, V "Exp", T In] (_:E e:_:Pt (StreamToken (_, Str str)):_:rest) = 
@@ -467,7 +467,7 @@ ruleFuncs [V "Term"] ((E term):rest) =
 ruleFuncs [V "Exp", V "Op", V "Term"] ((E rhs):(O o):(E lhs):rest) = 
     logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
 ruleFuncs [V "Exp"] [E e] = 
-    logStack ([Ps (Exp e)]) 1 
+    logStack [Ps (Exp e)] 1 
 ruleFuncs [V "Stm"] [Ps e] = 
     logStack [Ps e] 1
 ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
