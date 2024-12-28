@@ -51,7 +51,8 @@ typeCheckStm env (Ast.Exp expr) =
     (TAST.StmExpr texpr exprtype, env)
 
 typeCheckAst :: Ast.Ast -> TAST.Ast
-typeCheckAst stms =
+typeCheckAst funs =
+    let stms = body <$> funs in
     reverse . fst $ Prelude.foldl (\(acc, env) x -> 
                                     let (stm, newenv) = typeCheckStm env x in
                                     (stm : acc, newenv)

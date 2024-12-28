@@ -3,7 +3,7 @@ module Ast  where
 data Lit = LI Int | LB Bool 
 
 data Op = Plus | Minus 
-type Ast = [Stm]
+type Ast = [Function]
 
 data Expr = 
     LitExp {lit :: Lit}
@@ -15,6 +15,9 @@ data Stm =
     | Return Expr
     | Scope [Stm]
     | Exp Expr
+
+data Function = Function {funName :: String, params :: [(String, String)], body :: Stm}
+    deriving (Show)
 
 instance Show Op where 
     show Plus = "+"
@@ -29,7 +32,7 @@ instance Show Expr where
 instance Show Stm where 
     show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
     show (Return e) = "return " ++ show e
-    show (Scope stms) = foldl (\acc s -> acc ++ "\n" ++ show s) "" stms
+    show (Scope stms) = foldl (\acc s -> acc ++ " " ++show s) "" stms
     show (Exp ex) = show ex
 
 
@@ -40,25 +43,27 @@ intToChar = toEnum
 -- '\128'
 
 prettyPrintAst :: Ast -> String 
-prettyPrintAst a = "Ast:\n" ++ helper a where 
-    helper :: [Stm] -> String 
-    helper [] = ""
-    helper [x] = 
-        let str = prettyPrintStm x in 
-        let ls =  lines str in 
-        let fs = "\9492\9472" ++ head ls in
-        let rs = ("  "++) <$> tail ls in
-        unlines (fs:rs)
-    helper (x:xs) = 
-        let str = prettyPrintStm x in 
-        let ls =  lines str in 
-        let fs = "\9500\9472" ++ head ls in
-        let rs = ("\9474 " ++) <$> tail ls in
-        unlines (fs:rs) ++ helper xs
+prettyPrintAst a = "Ast:\n" ++ foldl (\acc x -> acc ++ "\n" ++ funName x ++ "\n" ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x)))) ) "" a
+
+helper :: [Stm] -> String 
+helper [] = ""
+helper [x] = 
+    let str = prettyPrintStm x in 
+    let ls =  lines str in 
+    let fs = "\9492\9472" ++ head ls in
+    let rs = ("  "++) <$> tail ls in
+    unlines (fs:rs)
+helper (x:xs) = 
+    let str = prettyPrintStm x in 
+    let ls =  lines str in 
+    let fs = "\9500\9472" ++ head ls in
+    let rs = ("\9474 " ++) <$> tail ls in
+    unlines (fs:rs) ++ helper xs
 
 
 prettyPrintStm :: Stm -> String 
 prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e 
+prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
 prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr (6 + length str) [] ex
 prettyPrintStm e = error "prettyprinter not implemented for: " ++ show e 

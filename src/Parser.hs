@@ -445,7 +445,7 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast
+data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)]
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -454,10 +454,10 @@ logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
 logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
+ruleFuncs [T LeftParen, T RightParen] (_:_:rest) = 
+    logStack (FunParams []:rest) 2
 ruleFuncs [V "Ast"] (Pa a:rest) = 
     logStack [Pa a] 1
-ruleFuncs [V "Ast", V "Stm"] (Ps s:Ps a:rest) = 
-    logStack (Pa [a, s]:rest) 2
 ruleFuncs [T Let, T Ident, T Equal, V "Exp", T In] (_:E e:_:Pt (StreamToken (_, Str str)):_:rest) = 
     logStack (Ps (LetIn str e):rest)  5
 ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E exp):_:rest) = 
@@ -468,6 +468,15 @@ ruleFuncs [V "Exp", V "Op", V "Term"] ((E rhs):(O o):(E lhs):rest) =
     logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
 ruleFuncs [V "Exp"] [E e] = 
     logStack [Ps (Exp e)] 1 
+ruleFuncs [V "Function"] (Pa a:rest) = 
+    logStack (Pa a:rest) 1
+ruleFuncs [T Ident, T Colon, V "Types", V "Scope"] (Ps scope:FunParams fps :_: Pt st:rest) = -- Function declarations
+    let StreamToken (_, Str fname) = st in
+    logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
+ruleFuncs [V "Scope", V "Stm"] (Ps e:Ps a:rest) = 
+    logStack (Ps (Scope [a, e]):rest) 2
+ruleFuncs [V "Stm"] (Ps e:rest) = 
+    logStack (Ps e:rest) 1
 ruleFuncs [V "Stm"] [Ps e] = 
     logStack [Ps e] 1
 ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
@@ -502,13 +511,13 @@ parseGrammar s =
 
 parseLine :: Text -> Grammar 
 parseLine text = 
-    let fs = splitOn (pack "->") text in 
+    let fs = splitOn (pack "=>") text in 
     case fs of 
         [l, r] -> 
             let l' = unpack $ Data.Text.takeWhile (/= ' ') l in 
             let r' = fmap parseAtom $ Prelude.filter (/= pack "") $ splitOn (pack " ") r in  
             Dm.singleton l' [r']
-        e -> error $ "kodivslænk" ++ show e
+        e -> error $ "kodivslænk" ++ show e ++ "\n" ++ show text
 
 parseAtom :: Text -> Atom 
 parseAtom text 
@@ -525,6 +534,8 @@ parseAtom text
         "let" -> T Let
         "in" -> T In
         "=" -> T Equal 
+        ":" -> T Colon
+        "->" -> T RightArrow 
         e -> error $ "mising data types to parse to for: " ++ e
     
 

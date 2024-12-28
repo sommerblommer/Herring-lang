@@ -1,2 +1,3 @@
-let x = 1 + 2 in
-return 1 + x
+main : ()
+    let x = 1 + 2 in
+    return 1 + x

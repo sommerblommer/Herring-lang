@@ -1,5 +1,4 @@
 module Lexer (lexicalAnalysis, Token(..), StreamToken(..), Content(..)) where
-import Data.Char (digitToInt)
 
 
 data Token = 
@@ -17,6 +16,8 @@ data Token =
     | Literal 
     | Ident
     | Return
+    | Colon
+    | RightArrow
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
@@ -78,6 +79,7 @@ findToken '}' _ = return $ pure RightBreacket
 findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
 findToken '-' _ = return $ pure Minus
+findToken ':' _ = return $ pure Colon
 findToken '\n' (x:xs) = return ' ' >> findToken x xs
 findToken '\n' [] = return $ pure EOF
 findToken ' ' (x:xs) = return ' ' >> findToken x xs
@@ -90,6 +92,7 @@ identToLit (StreamToken (Ident, Str s))= StreamToken (Literal, I $ read s)
 identToLit a = a 
 
 checkIdentForReserved :: StreamToken Token -> StreamToken Token 
+checkIdentForReserved (StreamToken (Ident, Str "->")) = pure RightArrow
 checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
 checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
 checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
