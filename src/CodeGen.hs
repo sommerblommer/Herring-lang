@@ -2,7 +2,7 @@ module CodeGen where
 import TypedAst
 import Data.List (uncons, nub)
 import Data.Map as Map
-import GHC.Base (build)
+import Control.Monad (join)
 
 type Reg = Int
 data Operand = Lit Int | StrLit String | R Reg | SP Int
@@ -38,27 +38,47 @@ printOperandList (op:ops) = show op ++ ", " ++ printOperandList ops
 
 type Block = [CodeLine]
 
-newtype Cfg = Cfg {blocks::(String, Block)}
+newtype State s a = State (s -> (a, s))
+
+app :: State s a -> s -> (a, s)
+app (State st) = st  
+
+instance Functor (State s) where 
+    fmap f (State s) = State (\s2 -> 
+                                    let (a , s3) = s s2  
+                                    in (f a, s3)) 
+instance Applicative (State s) where 
+    pure x = State (\s -> (x, s))
+    State f <*> State s = 
+        let f2 sf = let (fa, _) = f sf in fa
+        in State (\sa -> let (a, sa') = s sa 
+                         in (f2 sa a, sa'))
+       
+
+data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine]}
     deriving (Show)
 
 printCfg :: Cfg -> String 
 printCfg c =
-       let (label, block) = blocks c in 
-       header ++ "\n\n" ++label ++ ":\n\t" ++ Prelude.foldr (\cl acc ->  acc ++ show cl) "" block
+      Prelude.foldl (\acc x -> acc ++ helper x)  (header ++ "\n\n") $ blocks c  
+        where 
+        helper :: (String, Block) -> String 
+        helper (label, block) =
+             label ++ ":\n\t" ++ Prelude.foldr (\cl acc ->  acc ++ show cl) "" block
     -- should be correct when there are multiple blocks
     -- header ++ Prelude.foldr (\(label, block) acc -> label ++ "\n\t" ++ Prelude.foldl (\acc x -> acc ++show x) "" block ++ acc) "" (blocks c)
     
 
 addLine :: CodeLine -> Cfg -> Cfg
-addLine cl cfg = 
-    let (label, blk) = blocks cfg in 
-    Cfg {blocks = (label, cl : blk)}
+addLine cl cfg = cfg {insns = cl : insns cfg}
+
+addBlock :: String -> Cfg -> Cfg 
+addBlock s cfg = Cfg {blocks = (s, insns cfg): blocks cfg, insns = []}
+
 
 emptyCfg :: Cfg
-emptyCfg = Cfg {blocks=("_start", [])}
+emptyCfg = Cfg {blocks=[], insns = []}
 
-getCfg :: Cfg -> [CodeLine] 
-getCfg = snd . blocks
 
 newtype BuildLet a = BuildLet (Cfg -> Cfg, a)
 
@@ -159,8 +179,7 @@ codegenStm :: Env ->  Stm -> (BuildLet Operand, Env)
 codegenStm env (LetIn ident expr _) =  
     let BuildLet (cfg, b) = do
             a <- codegenAndHandleOp env expr
-            let newop = SP $ 16 + findMaxOnStack env
-            BuildLet (addLine $ CL Str [a, newop], newop)
+            BuildLet (addLine $ CL Str [a, SP 16], SP 16)
     in
     let newenv = insertIntoEnv ident b env in 
     (BuildLet (cfg, b), newenv)
@@ -176,19 +195,30 @@ codegenStm env (Return expr _) =
 
     in
     (buildlet, env)
+codegenStm env (Scope stms) = 
+    Prelude.foldl (\(acc, env') stm -> let (bl, env'') = codegenStm env' stm 
+                                       in (acc >> bl, env'')
+                                        ) (BuildLet (id, R 0), env) stms 
 codegenStm _ _ = error  "not implemented yet for stm"
 
-codegenAst :: Ast -> String 
-codegenAst stms = 
+codegenFunc :: Env -> Function -> (BuildLet Operand, Env)
+codegenFunc env func = do 
+    let label = "_" ++ funName func 
+    let newnev = fst . Prelude.foldl (\(acc, iter) (str, _) -> (insertIntoEnv str (R iter) acc, iter + 1)) (env, 0) $ params func
+    let (buildlet, e) = codegenStm newnev $ body func 
+    (buildlet >> BuildLet (addBlock label, R 0), e)
+
+codegenAst :: TypedAst -> String 
+codegenAst funcs = 
     let BuildLet (cfg, _) = fst $ Prelude.foldl (\(acc, env) stm -> 
-                let (buildlet, newenv) = codegenStm env stm in
+                let (buildlet, newenv) = codegenFunc env stm in
                 (acc >> buildlet, newenv)
-            ) (BuildLet (id, R 0), emptyEnv) stms in
+            ) (BuildLet (id, R 0), emptyEnv) funcs in
     printCfg $ cfg emptyCfg
     
 
 header :: String 
-header = ".global _start\n.align 2\n"
+header = ".global _main\n.align 2\n"
 
 
 

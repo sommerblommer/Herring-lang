@@ -3,9 +3,10 @@ module Main (main) where
 import Lib
 import Lexer (lexicalAnalysis) 
 import Parser
-import Ast
+import Ast (Ast, prettyPrintAst)
 import CodeGen
 import TypeCheck (typeCheckAst)
+import TypedAst 
 
 main :: IO ()
 main = do  
@@ -14,7 +15,11 @@ main = do
     parsed <- parse $ lexicalAnalysis file
     putStrLn $ prettyPrintAst parsed 
     putStrLn $ replicate 40 '*'
+    let typedAst = typeCheckAst parsed 
+    putStrLn $ prettyPrintTypedAst typedAst
     putStrLn "code: "
-    putStrLn $ codegenAst $ typeCheckAst parsed
+    let compiled = codegenAst  typedAst
+    putStrLn compiled 
+    writeFile "output.s" compiled
 
 

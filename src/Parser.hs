@@ -6,8 +6,7 @@ import Data.Maybe (catMaybes)
 import Ast 
 import Control.Monad.Writer 
 import Data.Bifunctor (Bifunctor(bimap))
-import Data.Text (pack, splitOn, breakOn, Text, takeWhile, head, unpack)
-import Data.Data (Fixity(Prefix))
+import Data.Text (pack, splitOn, Text, takeWhile, head, unpack)
 
 type Rule = [Atom]
 
@@ -445,7 +444,7 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)]
+data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)] 
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -454,14 +453,22 @@ logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
 logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
+ruleFuncs [T Ident, T Colon, V "ReturnTypes", V "Scope"] (Ps scope:E e: _: Pt (StreamToken (_, Str name)):rest) =
+    logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
+ruleFuncs [T Ident, T Colon, V "ReturnTypes", V "Scope"] (Ps scope:FunParams fps: _: Pt (StreamToken (_, Str name)):rest) =
+    let (ret, pms) = case reverse fps of 
+            ((_,rt): ps) -> (rt, ps)
+            [] -> ("Thunk", [])
+    in
+    logStack (Pa [Function {funName = name, params = reverse pms, body = scope, returnType = ret}]:rest) 4
 ruleFuncs [T LeftParen, T RightParen] (_:_:rest) = 
     logStack (FunParams []:rest) 2
-ruleFuncs [V "Ast"] (Pa a:rest) = 
+ruleFuncs [V "Ast"] (Pa a:_) = 
     logStack [Pa a] 1
 ruleFuncs [T Let, T Ident, T Equal, V "Exp", T In] (_:E e:_:Pt (StreamToken (_, Str str)):_:rest) = 
     logStack (Ps (LetIn str e):rest)  5
-ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E exp):_:rest) = 
-    logStack (E exp:rest)  3
+ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E e):_:rest) = 
+    logStack (E e:rest)  3
 ruleFuncs [V "Term"] ((E term):rest) = 
     logStack (E term:rest) 1
 ruleFuncs [V "Exp", V "Op", V "Term"] ((E rhs):(O o):(E lhs):rest) = 

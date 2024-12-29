@@ -16,7 +16,7 @@ data Stm =
     | Scope [Stm]
     | Exp Expr
 
-data Function = Function {funName :: String, params :: [(String, String)], body :: Stm}
+data Function = Function {funName :: String, params :: [(String, String)], body :: Stm, returnType :: String}
     deriving (Show)
 
 instance Show Op where 
@@ -43,7 +43,14 @@ intToChar = toEnum
 -- '\128'
 
 prettyPrintAst :: Ast -> String 
-prettyPrintAst a = "Ast:\n" ++ foldl (\acc x -> acc ++ "\n" ++ funName x ++ "\n" ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x)))) ) "" a
+prettyPrintAst a = "Ast:\n" ++ foldl (\acc x -> acc 
+                                                ++ "\n" ++ funName x ++ " : " ++ printParams (params x) 
+                                                ++ returnType x ++ "\n" 
+                                                ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x)))) ) "" a
+
+printParams :: [(String, String)] -> String 
+printParams [] = ""
+printParams ((p, pt):xs) = "(" ++ show p ++ " : " ++ show pt ++ ")" ++ " -> " ++ printParams xs
 
 helper :: [Stm] -> String 
 helper [] = ""
@@ -66,7 +73,6 @@ prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e
 prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
 prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr (6 + length str) [] ex
-prettyPrintStm e = error "prettyprinter not implemented for: " ++ show e 
 
 makeIndents :: Int -> [Int] -> String 
 makeIndents _ [] = ""
