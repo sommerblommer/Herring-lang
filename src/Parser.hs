@@ -480,6 +480,8 @@ ruleFuncs [V "Function"] (Pa a:rest) =
 ruleFuncs [T Ident, T Colon, V "Types", V "Scope"] (Ps scope:FunParams fps :_: Pt st:rest) = -- Function declarations
     let StreamToken (_, Str fname) = st in
     logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
+ruleFuncs [V "Scope", V "Stm"] (Ps e:Ps (Scope a):rest) = 
+    logStack (Ps (Scope (a ++ [e])):rest) 2
 ruleFuncs [V "Scope", V "Stm"] (Ps e:Ps a:rest) = 
     logStack (Ps (Scope [a, e]):rest) 2
 ruleFuncs [V "Stm"] (Ps e:rest) = 

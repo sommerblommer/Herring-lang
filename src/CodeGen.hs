@@ -5,13 +5,14 @@ import Data.Map as Map
 import Control.Monad (join)
 
 type Reg = Int
-data Operand = Lit Int | StrLit String | R Reg | SP Int
+data Operand = Lit Int | StrLit String | R Reg | SP Int | None
 
 instance Show Operand where 
     show (Lit i) = "#" ++ show i
     show (StrLit s) = show s 
     show (R r) = "X" ++ show r 
     show (SP i) = "[SP, " ++ "#-" ++ show i ++ "]!"
+    show None = ""
 
 data Operation = Mov | Svc Int | Ldr | Add | Str | Sub
 
@@ -38,22 +39,7 @@ printOperandList (op:ops) = show op ++ ", " ++ printOperandList ops
 
 type Block = [CodeLine]
 
-newtype State s a = State (s -> (a, s))
 
-app :: State s a -> s -> (a, s)
-app (State st) = st  
-
-instance Functor (State s) where 
-    fmap f (State s) = State (\s2 -> 
-                                    let (a , s3) = s s2  
-                                    in (f a, s3)) 
-instance Applicative (State s) where 
-    pure x = State (\s -> (x, s))
-    State f <*> State s = 
-        let f2 sf = let (fa, _) = f sf in fa
-        in State (\sa -> let (a, sa') = s sa 
-                         in (f2 sa a, sa'))
-       
 
 data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine]}
     deriving (Show)
@@ -69,8 +55,9 @@ printCfg c =
     -- header ++ Prelude.foldr (\(label, block) acc -> label ++ "\n\t" ++ Prelude.foldl (\acc x -> acc ++show x) "" block ++ acc) "" (blocks c)
     
 
-addLine :: CodeLine -> Cfg -> Cfg
-addLine cl cfg = cfg {insns = cl : insns cfg}
+addLine :: CodeLine -> BuildLet Operand
+addLine cl@(CL _ (op:_)) = BuildLet (\cfg -> cfg {insns = cl : insns cfg}, op)
+addLine cl =BuildLet (\cfg -> cfg {insns = cl : insns cfg}, None)
 
 addBlock :: String -> Cfg -> Cfg 
 addBlock s cfg = Cfg {blocks = (s, insns cfg): blocks cfg, insns = []}
@@ -142,7 +129,7 @@ findMaxOnStack e =
 handleOperand :: Env -> BuildLet Operand -> BuildLet Operand
 handleOperand env b@(BuildLet (_, SP i)) = 
     let (_, freeOp) = popReg env in
-    b >> BuildLet (addLine (CL Ldr [freeOp, SP i]), freeOp) 
+    b >> addLine (CL Ldr [freeOp, SP i])
 handleOperand _ b = b
 
 testCodeGen :: IO () 
@@ -161,7 +148,7 @@ codegenExpr env (Ident str) = case vars env !? str of
     Nothing -> error $ "variable " ++ str ++ " not in environment"
 codegenExpr env (Literal {tLit=TLI i}) = 
     let op = snd $ popReg env in
-    BuildLet (addLine (CL Mov [op, Lit i]), op) 
+    addLine $ CL Mov [op, Lit i]
 codegenExpr _ (Literal {tLit=TLB b}) 
     | b =  return (Lit 1)
     | otherwise = return (Lit 0)
@@ -173,25 +160,24 @@ codegenExpr env (BinOp l op r _) = do
     let env2 = lused +> env 
     rused <- codegenAndHandleOp env2 r 
     let (_, nextop) = popReg $ rused +> env2
-    BuildLet (addLine (CL binop [nextop, lused, rused]), nextop)
+    addLine $ CL binop [nextop, lused, rused]
 
 codegenStm :: Env ->  Stm -> (BuildLet Operand, Env)
 codegenStm env (LetIn ident expr _) =  
     let BuildLet (cfg, b) = do
             a <- codegenAndHandleOp env expr
-            BuildLet (addLine $ CL Str [a, SP 16], SP 16)
+            addLine $ CL Str [a, SP 16]
     in
     let newenv = insertIntoEnv ident b env in 
     (BuildLet (cfg, b), newenv)
 codegenStm env (Return expr _) = 
     let buildlet = do 
             a <- handleOperand env $ codegenExpr env expr 
-            let mov_or_load = case a of 
+            _ <- case a of 
                                 SP i -> addLine $ CL Ldr [R 0, SP i]
                                 _ -> addLine  $ CL Mov [R 0, a] 
-            _ <- BuildLet (mov_or_load, R 0)
-            _ <- BuildLet (addLine (CL Mov [R 16, Lit 1]), R 16)
-            BuildLet (addLine (CL (Svc 0) [] ), R 0)
+            _ <- addLine $ CL Mov [R 16, Lit 1]
+            addLine (CL (Svc 0) [] )
 
     in
     (buildlet, env)
