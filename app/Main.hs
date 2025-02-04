@@ -2,7 +2,7 @@ module Main (main) where
 
 import Lib
 import Lexer (lexicalAnalysis) 
-import Parser
+import Parser (parse)
 import Ast (Ast, prettyPrintAst)
 import CodeGen
 import TypeCheck (typeCheckAst)

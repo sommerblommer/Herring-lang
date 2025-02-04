@@ -29,24 +29,7 @@ startPosition = Position {prod="", rule=[V "Ast"], pos=0, followSet= singleton E
 
 
 
-simpleGrammar :: Grammar 
-simpleGrammar = 
-    let s = Dm.singleton "S" [[V "S", V "A"], [V "S", V "B"]] in
-    let a = Dm.insert "A" [[T Ident ]] s in 
-    Dm.insert "B" [[T Ident ]] a  
 
-test :: Grammar
-test = 
-    let terms = Dm.singleton "Term" [[T Literal ], [T Ident ], [T LeftParen, V "Exp", T RightParen]]
-    in 
-    let ops = Dm.insert "Op" [[T Lexer.Plus], [T Lexer.Minus]] terms in
-    let exps = 
-            Dm.insert "Exp" [[V "Exp", V "Op", V "Term"]
-            , [V "Term"]
-            ] ops
-    in
-    let stm = Dm.insert "Stm" [[V "Exp"]] exps in
-    stm
 
 isToken :: Atom -> Bool 
 isToken (T _) = True 
@@ -199,26 +182,6 @@ closure g state =
 
 
 -- >>> closureR test $ Position {prod = "Term", rule = [T LeftParen,V "Exp",T RightParen], pos = 2, followSet = fromList [RightParen,Plus,Minus]}
--- Ambiguous occurrence `Minus'
--- It could refer to
---    either `Lexer.Minus',
---           imported from `Lexer' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:3:15-23
---           (and originally defined
---              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Lexer.hs:12:7-11)
---        or `Ast.Minus',
---           imported from `Ast' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:6:1-10
---           (and originally defined
---              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Ast.hs:5:18-22)
--- Ambiguous occurrence `Plus'
--- It could refer to
---    either `Lexer.Plus',
---           imported from `Lexer' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:3:15-23
---           (and originally defined
---              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Lexer.hs:11:7-10)
---        or `Ast.Plus',
---           imported from `Ast' at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Parser.hs:6:1-10
---           (and originally defined
---              at /Users/alexandersommer/Desktop/fritid/haskell/herring/src/Ast.hs:5:11-14)
 
 
 closureR:: Grammar -> Position -> State
@@ -380,10 +343,9 @@ action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
                     action g (nexState:state:stateStack) (Pt st:ps) tokens
         Reduce -> do
             tell ["in reduce"]
-            let ((newStack, toPop), log) = runWriter $ ruleFuncs (rule p) ps  
+            let ((newStack, toPop), _) = runWriter $ ruleFuncs (rule p) ps  
             let newStateStack = Prelude.drop toPop (state:stateStack)
             let possibleTs = transition g $ Prelude.head newStateStack 
-            let nextState = (possibleTs Dm.! Prelude.head newStateStack) Dm.! V (prod p)  
             let nextStatet = (let pts = possibleTs Dm.!? Prelude.head newStateStack in 
                                 case pts of 
                                 Nothing -> error "no possible state"
@@ -393,19 +355,20 @@ action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
                 Just nextState ->
                     action g (nextState:newStateStack) newStack (st:tokens)
         Accept -> do
-            let ((newStack, _), log) = runWriter $ ruleFuncs (rule p) ps  
+            let ((newStack, _), _) = runWriter $ ruleFuncs (rule p) ps  
             tell ["accepted"]
             return newStack
 action _ _ _ _ = error "something went wrong bruhh"
     
 
-
+canBeReduced :: Position -> Token -> Bool 
+canBeReduced p st = st `elem` followSet p
 
 findAction :: State -> StreamToken Token -> (Action, Position) 
 findAction state (StreamToken (token, _)) = 
     if isAccepting state token then (Accept, startPosition) else 
     let (s, r) = bimap catMaybes  catMaybes $ Set.foldl (\(acc, acc2) p -> 
-                            if length (rule p) == pos p && elem token (followSet p) then  
+                            if length (rule p) == pos p && canBeReduced p token then  
                                 (acc, Just p:acc2)
                             else 
                                 let res = rule p !? pos p >>= 
@@ -452,17 +415,41 @@ type ParseStack = [ParseItem]
 logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
 logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 
+types :: ParseStack -> (ParseItem, ParseStack)
+types (_:Pt (StreamToken (_, Str typ)):_:Pt (StreamToken (_, Str var)):_:_:FunParams pms:rest) = 
+    (FunParams ((var, typ):pms), rest)
+types (_:Pt (StreamToken (_, Str typ)):_:Pt (StreamToken (_, Str var)):_:rest) = 
+    (FunParams [(var, typ)], rest)
+types (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) = 
+    let fpms = FunParams . reverse $ ("", retType):pms in
+    (fpms, rest)
+types _ = error "in types"
+
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
+ruleFuncs [V "Types", T RightArrow, T Ident] stack = 
+    let (pms, rest) = types stack in 
+    logStack (pms:rest) 3
+-- multiple params
+ruleFuncs [V "Types", T RightArrow, T LeftParen, T Ident, T Colon, T Ident, T RightParen] stack = 
+    let (pms, rest) = types stack in 
+    logStack (pms:rest) 7
+-- for single param
+ruleFuncs [T LeftParen, T Ident, T Colon, T Ident, T RightParen] stack = 
+    let (pms, rest) = types stack in 
+    logStack (pms:rest) 5
+-- for not params and only a return type
 ruleFuncs [T Ident, T Colon, V "ReturnTypes", V "Scope"] (Ps scope:E e: _: Pt (StreamToken (_, Str name)):rest) =
     logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
+-- for multiple params
 ruleFuncs [T Ident, T Colon, V "ReturnTypes", V "Scope"] (Ps scope:FunParams fps: _: Pt (StreamToken (_, Str name)):rest) =
     let (ret, pms) = case reverse fps of 
             ((_,rt): ps) -> (rt, ps)
             [] -> ("Thunk", [])
-    in
-    logStack (Pa [Function {funName = name, params = reverse pms, body = scope, returnType = ret}]:rest) 4
+    in logStack (Pa [Function {funName = name, params = reverse pms, body = scope, returnType = ret}]:rest) 4
 ruleFuncs [T LeftParen, T RightParen] (_:_:rest) = 
     logStack (FunParams []:rest) 2
+ruleFuncs [V "Ast", V "Function"] (Pa f:Pa ast:rest) = 
+    logStack (Pa (ast ++ f):rest) 2
 ruleFuncs [V "Ast"] (Pa a:_) = 
     logStack [Pa a] 1
 ruleFuncs [T Let, T Ident, T Equal, V "Exp", T In] (_:E e:_:Pt (StreamToken (_, Str str)):_:rest) = 
@@ -514,10 +501,6 @@ parseGrammar s =
         Dm.unionWith (++) (parseLine t) acc
     ) Dm.empty asTxt
 
-
-
-
-
 parseLine :: Text -> Grammar 
 parseLine text = 
     let fs = splitOn (pack "=>") text in 
@@ -547,5 +530,3 @@ parseAtom text
         "->" -> T RightArrow 
         e -> error $ "mising data types to parse to for: " ++ e
     
-
-

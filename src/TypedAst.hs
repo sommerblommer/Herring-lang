@@ -42,25 +42,25 @@ printParams :: [(String, Typ)] -> String
 printParams [] = ""
 printParams ((p, pt):xs) = "(" ++ show p ++ " : " ++ show pt ++ ")" ++ " -> " ++ printParams xs
 
-helper :: [Stm] -> String 
-helper [] = ""
-helper [x] = 
+prettyPrintStms :: [Stm] -> String 
+prettyPrintStms [] = ""
+prettyPrintStms [x] = 
     let str = prettyPrintStm x in 
     let ls =  lines str in 
     let fs = "\9492\9472" ++ head ls in
     let rs = ("  "++) <$> tail ls in
     unlines (fs:rs)
-helper (x:xs) = 
+prettyPrintStms (x:xs) = 
     let str = prettyPrintStm x in 
     let ls =  lines str in 
     let fs = "\9500\9472" ++ head ls in
     let rs = ("\9474 " ++) <$> tail ls in
-    unlines (fs:rs) ++ helper xs
+    unlines (fs:rs) ++ prettyPrintStms xs
 
 
 prettyPrintStm :: Stm -> String 
 prettyPrintStm (StmExpr e t) = prettyPrintExpr 0 [0] e ++ " -> " ++ show t
-prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
+prettyPrintStm (Scope stms) ="Scope\n" ++ prettyPrintStms stms
 prettyPrintStm (Return e t) = "Return -> " ++ show t ++ "\n\9492\9472" ++ prettyPrintExpr  2 [] e 
 prettyPrintStm (LetIn str ex t) = "let -> " ++ show t ++ "\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr (6 + length str) [] ex 
 

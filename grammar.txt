@@ -7,7 +7,7 @@ Function => ident : ReturnTypes Scope
 Types => Types -> ( ident : ident )
 Types => ( ident : ident ) 
 
-ReturnTypes => Types ident 
+ReturnTypes => Types -> ident 
 ReturnTypes => ident
 ReturnTypes => ( )
 
@@ -15,7 +15,6 @@ Scope => Scope Stm
 Scope => Stm
 
 Stm => let ident = Exp in
-Stm => Exp 
 Stm => return Exp
 
 Exp => Exp Op Term 
@@ -25,7 +24,7 @@ Op => plus
 Op => minus 
 
 Term => ( Exp ) 
-Term => ident 
 Term => literal 
+Term => ident
 
 
