@@ -2,17 +2,25 @@ module TypeCheck where
 import Ast 
 import TypedAst as TAST
 import Data.Map
+import Data.List 
 
 typeOfFunction :: Ast.Op -> Typ
 typeOfFunction Ast.Plus = IntType 
 typeOfFunction Ast.Minus = IntType
 
-data Env = Env {vars :: Map String Typ, functions :: [String]}
+data Env = Env {vars :: Map String Typ, functions :: [TAST.Function]}
 emptEnv :: Env 
 emptEnv = Env {vars = empty, functions = []}
 
 insertIntoEnv :: String -> Typ -> Env -> Env 
-insertIntoEnv s t e = e {vars = insert s t $ vars e}
+insertIntoEnv s t e = e {vars = Data.Map.insert s t $ vars e}
+
+lookupFunc ::  Env -> String -> TAST.Expr 
+lookupFunc env ident = case find (\a -> TAST.funName a == ident) (functions env) of 
+    Just _ -> TAST.Ident ident
+    Nothing -> case Data.Map.lookup ident (vars env) of 
+        Just _ -> TAST.Ident ident 
+        Nothing -> error $ ident ++ " not a function"
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
 typeCheckExpr _ LitExp {lit = LI i} = (TAST.Literal {tLit = TLI i}, IntType)
@@ -30,6 +38,14 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
         (TAST.BinOp leftExp TAST.Plus rightExp opType, opType)
     else 
         error "type mismatch"
+typeCheckExpr env (Ast.FunCall fvar params) = 
+    let typedFvar = case fvar of 
+            (IExp {ident = ide} ) -> lookupFunc env ide  
+            _ -> error $ show fvar ++ " not a valid function call"
+    in
+    
+    error ""
+typeCheckExpr _ e = error $ show e ++ " not impplemented"
 
 typeCheckStm :: Env -> Ast.Stm -> (TAST.Stm, Env)
 typeCheckStm env (Ast.LetIn str expr) = 
@@ -52,11 +68,12 @@ typeCheckStm env (Ast.Exp expr) =
 
 typeCheckFunction :: Env ->  Ast.Function -> (TAST.Function, Env)
 typeCheckFunction env func = 
-    let env' = env {functions = Ast.funName func : functions env} in
     let pms = typeCheckParams (Ast.params func) in
-    let newenv = Prelude.foldr (\(str, typ) acc -> insertIntoEnv str typ acc) env' pms in 
-    let (newbody, env'') = typeCheckStm newenv $ Ast.body func 
-    in (TAST.Function {TAST.funName = Ast.funName func, TAST.params = pms, TAST.body = newbody, TAST.returnType = IntType}, env'')
+    let newenv = Prelude.foldr (\(str, typ) acc -> insertIntoEnv str typ acc) env pms in 
+    let (newbody, env') = typeCheckStm newenv $ Ast.body func in
+    let tfunc = (TAST.Function {TAST.funName = Ast.funName func, TAST.params = pms, TAST.body = newbody, TAST.returnType = IntType}) in
+    let env'' = env {functions = tfunc : functions env'} in
+    (tfunc, env'')
         where 
         typeCheckParams :: [(String, String)] -> [(String, Typ)]
         typeCheckParams xs = do x <- xs 

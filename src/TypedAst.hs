@@ -13,6 +13,7 @@ data Expr =
     Literal {tLit :: Lit} 
     | Ident String 
     | BinOp Expr Op Expr Typ
+    | FunCall Expr [Expr] Typ
 
 data Stm = 
     LetIn String Expr Typ

@@ -1,6 +1,6 @@
 main : Int
     let y = 69 in
-    return (foo x) 
+    return foo x 
 
 foo : (x : Int) -> Int 
     return x + 1
