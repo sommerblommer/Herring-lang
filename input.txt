@@ -1,7 +1,9 @@
 main : Int
     let y = 69 in
-    let x = 1 + 2 in
-    return x + y
+    return (foo x) 
+
+foo : (x : Int) -> Int 
+    return x + 1
 
 
     

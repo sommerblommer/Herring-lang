@@ -34,6 +34,7 @@ data CodeLine = CL Operation [Operand]
 
 
 instance Show CodeLine where
+    show (CL (Svc i) []) = "svc " ++ show i ++ "\n"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
 
@@ -92,29 +93,29 @@ instance Monad BuildLet where
         let combined = c' . c in 
         BuildLet (combined, b)
 
-data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)]} 
+data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], poppedFromStack :: [(String, Operand)]} 
     deriving (Show)
     
 emptyEnv :: Env 
-emptyEnv = Env {stack=0, regs= [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = []}
+emptyEnv = Env {stack=0, regs= [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = [], poppedFromStack = []}
 
 
--- >>> updateStack (R 0) emptyEnv
--- Env {stack = 0, regs = [1,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = fromList []}
+-- >>> updateStack (R 1) emptyEnv
+-- Env {stack = 0, regs = [0,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = [], poppedFromStack = []}
 
 updateStack :: Operand -> Env -> Env
 updateStack (R r) e = e {regs = if r `elem` regs e then Prelude.filter (/= r) (regs e) else r : regs e}
 updateStack (SP _) e = e {stack = 16 + stack e}
 updateStack _ e = e
 
-(+>) :: (Operand, Env) -> Env -> Env 
-(+>) (op, _) env = updateStack op env
+ups :: BuildLet (Operand, Env) -> Env 
+ups (BuildLet (_, (op, env))) = updateStack op env
 
 -- will pop a free register if there is one or will return an updated stack position
 popReg :: Env -> (Env, Operand)
 popReg e = let a = uncons $ regs e in 
     case a of 
-        Just (r, _) -> (e {regs = tail (regs e)}, R r)
+        Just (r, t) -> (e {regs = t}, R r)
         Nothing -> (updateStack (SP 16) e, SP $ 16 + stack e) 
 
 insertIntoEnv :: String -> Operand -> Env -> Env 
@@ -144,39 +145,51 @@ getStackVars = helper . vars  where
     helper ((s, SP i):rest) = (s, SP i): helper rest 
     helper (_:rest) = helper rest
     helper [] = []
+getOp :: BuildLet (Operand, Env) -> Operand 
+getOp (BuildLet (_, (op, _))) = op
 
-popFromStack :: String -> [(String, Operand)] -> Env -> (BuildLet (Operand, Env), Env, [String])
+
+
+
+
+-- Ugly function that works should be refactored. 
+popFromStack :: String -> [(String, Operand)] -> Env -> (BuildLet (Operand, Env), Operand, [String])
 popFromStack str ((cvar, cop):rest) env
     | str /= cvar = 
-        let poppedEnv = env {vars = tail $ vars env} in
-        let (b, env', sl) = popFromStack str rest poppedEnv  in
-        let (env'', nop) = popReg env' in
-        let l = addLine env'' (CL Ldr [nop,  SP 16]) in 
-        (l >> b, env'', cvar : sl)
+        let (env', nop) = popReg env in
+        let l = addLine env' (CL Ldr [nop,  SP 16]) in 
+        let (b, lasterEnv, sl) = popFromStack str rest (getEnv l)  in
+        let push = addLine (getEnv b) (CL Str [getOp l,  SP 16]) in 
+        (l >> b >> push, lasterEnv, cvar : sl)
     | otherwise = 
-        let poppedEnv = env {vars = tail $ vars env} in
-        let (env', nop) = popReg poppedEnv in
+        let (env', nop) = popReg env in
         let a =  addLine env' (CL Ldr [nop,  SP 16]) in
-        (a,env', [])
-popFromStack _ _ env = (return (Nop, env), env, [])
+        let push = addLine (getEnv a) (CL Str [getOp a,  SP 16]) in 
+        (a >> push, getOp a, [])
+popFromStack _ _ env = (return (Nop, env), Nop, [])
 
 
 
 
--- This function is for cleaner code and also to ensure that the two function are called with the same environment
+-- OBSOLETE
 codegenAndHandleOp :: Env -> Expr -> BuildLet (Operand, Env)
 codegenAndHandleOp e = handleOperand e .  codegenExpr e
 
 
+-- codegenExpr: constructs a CFG from a given expression
+-- Params: Env ~ the environment  
+--       : Expr ~ The expression to generate code for. 
+-- Return: BuildLet ~ State monad, in which the state is a CFG
 codegenExpr :: Env -> Expr -> BuildLet (Operand, Env)
 codegenExpr env (Ident str) = case Prelude.lookup str $ vars env of 
     Just _ -> 
-        let (b, _, _) = popFromStack str (vars env) env in
-        b 
+        let (b, op, _) = popFromStack str (vars env) env in
+        let BuildLet (cfg, (_, env1)) = b in 
+        BuildLet (cfg, (op, env1))
     Nothing -> error $ "variable " ++ str ++ " not in environment"
 codegenExpr env (Literal {tLit=TLI i}) = 
-    let op = snd $ popReg env in
-    addLine env $ CL Mov [op, Lit i]
+    let (env', op) = popReg env in
+    addLine env' $ CL Mov [op, Lit i]
 codegenExpr env (Literal {tLit=TLB b}) 
     | b =  return (Lit 1, env)
     | otherwise = return (Lit 0, env)
@@ -185,11 +198,17 @@ codegenExpr env (BinOp l op r _) = do
             Plus -> Add 
             Minus -> Sub
     lused <- codegenAndHandleOp env l
-    let env2 = lused +> env 
-    rused <- codegenAndHandleOp env2 r 
-    let (le, nextop) = popReg $ rused +> env2
+    rused <- codegenAndHandleOp (snd lused) r 
+    let (le, nextop) = popReg $ snd rused
     addLine le $ CL binop [nextop, fst lused, fst rused]
 
+
+
+
+-- codegenStm: constructs a CFG from a given statement
+-- Params: Env ~ the environment  
+--       : Stm ~ The statement to generate code for. It is also a node in the CFG
+-- Return: BuildLet ~ State monad, in which the state is a CFG
 codegenStm :: Env ->  Stm -> BuildLet (Operand, Env)
 codegenStm env (LetIn ident expr _) =  
     let BuildLet (cfg, b) = do

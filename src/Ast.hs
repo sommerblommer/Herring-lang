@@ -9,6 +9,7 @@ data Expr =
     LitExp {lit :: Lit}
     | IExp {ident :: String}
     | BinOp {lhs :: Expr, op :: Op, rhs :: Expr}
+    | FunCall Expr [Expr] -- First expression has to be an ident
 
 data Stm = 
     LetIn String Expr 
@@ -18,6 +19,12 @@ data Stm =
 
 data Function = Function {funName :: String, params :: [(String, String)], body :: Stm, returnType :: String}
     deriving (Show)
+
+
+
+
+
+-- Rest is for printing
 
 instance Show Op where 
     show Plus = "+"

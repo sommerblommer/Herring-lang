@@ -426,70 +426,70 @@ types (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) =
 types _ = error "in types"
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
-ruleFuncs [V "Types", T RightArrow, T Ident] stack = 
-    let (pms, rest) = types stack in 
-    logStack (pms:rest) 3
--- multiple params
-ruleFuncs [V "Types", T RightArrow, T LeftParen, T Ident, T Colon, T Ident, T RightParen] stack = 
-    let (pms, rest) = types stack in 
-    logStack (pms:rest) 7
--- for single param
-ruleFuncs [T LeftParen, T Ident, T Colon, T Ident, T RightParen] stack = 
-    let (pms, rest) = types stack in 
-    logStack (pms:rest) 5
+ruleFuncs input stack = 
+    case (input, stack) of
+         ([V "Types", T RightArrow, T Ident], stack) ->  
+            let (pms, rest) = types stack in 
+            logStack (pms:rest) 3
+         ([V "Types", T RightArrow, T LeftParen, T Ident, T Colon, T Ident, T RightParen], stack) ->  
+            let (pms, rest) = types stack in 
+            logStack (pms:rest) 7
+         ([T LeftParen, T Ident, T Colon, T Ident, T RightParen], stack) ->  
+            let (pms, rest) = types stack in 
+            logStack (pms:rest) 5
 -- for not params and only a return type
-ruleFuncs [T Ident, T Colon, V "ReturnTypes", V "Scope"] (Ps scope:E e: _: Pt (StreamToken (_, Str name)):rest) =
-    logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
+         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:E e: _: Pt (StreamToken (_, Str name)):rest) -> 
+            logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
 -- for multiple params
-ruleFuncs [T Ident, T Colon, V "ReturnTypes", V "Scope"] (Ps scope:FunParams fps: _: Pt (StreamToken (_, Str name)):rest) =
-    let (ret, pms) = case reverse fps of 
-            ((_,rt): ps) -> (rt, ps)
-            [] -> ("Thunk", [])
-    in logStack (Pa [Function {funName = name, params = reverse pms, body = scope, returnType = ret}]:rest) 4
-ruleFuncs [T LeftParen, T RightParen] (_:_:rest) = 
-    logStack (FunParams []:rest) 2
-ruleFuncs [V "Ast", V "Function"] (Pa f:Pa ast:rest) = 
-    logStack (Pa (ast ++ f):rest) 2
-ruleFuncs [V "Ast"] (Pa a:_) = 
-    logStack [Pa a] 1
-ruleFuncs [T Let, T Ident, T Equal, V "Exp", T In] (_:E e:_:Pt (StreamToken (_, Str str)):_:rest) = 
-    logStack (Ps (LetIn str e):rest)  5
-ruleFuncs [T LeftParen, V "Exp", T RightParen] (_:(E e):_:rest) = 
-    logStack (E e:rest)  3
-ruleFuncs [V "Term"] ((E term):rest) = 
-    logStack (E term:rest) 1
-ruleFuncs [V "Exp", V "Op", V "Term"] ((E rhs):(O o):(E lhs):rest) = 
-    logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
-ruleFuncs [V "Exp"] [E e] = 
-    logStack [Ps (Exp e)] 1 
-ruleFuncs [V "Function"] (Pa a:rest) = 
-    logStack (Pa a:rest) 1
-ruleFuncs [T Ident, T Colon, V "Types", V "Scope"] (Ps scope:FunParams fps :_: Pt st:rest) = -- Function declarations
-    let StreamToken (_, Str fname) = st in
-    logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
-ruleFuncs [V "Scope", V "Stm"] (Ps e:Ps (Scope a):rest) = 
-    logStack (Ps (Scope (a ++ [e])):rest) 2
-ruleFuncs [V "Scope", V "Stm"] (Ps e:Ps a:rest) = 
-    logStack (Ps (Scope [a, e]):rest) 2
-ruleFuncs [V "Stm"] (Ps e:rest) = 
-    logStack (Ps e:rest) 1
-ruleFuncs [V "Stm"] [Ps e] = 
-    logStack [Ps e] 1
-ruleFuncs [T Lexer.Plus] (Pt _:rest)=  
-    logStack (O Ast.Plus:rest) 1
-ruleFuncs [T Lexer.Return, V "Exp"] ((E e):(Pt r):rest) = 
-    logStack (Ps (Ast.Return e):rest) 2
-ruleFuncs [T Lexer.Minus] (Pt _:rest)=  
-    logStack (O Ast.Minus:rest) 1
-ruleFuncs [T Lexer.Ident] (Pt ide:rest) = case ide of 
-    StreamToken (_, Str str) -> 
-        logStack (E IExp {ident=str}:rest) 1
-    _ -> error "wrong content of token"
-ruleFuncs [T Lexer.Literal] (Pt ide:rest) = case ide of 
-    StreamToken (_, I i) -> 
-        logStack (E LitExp {lit= LI i}:rest) 1
-    _ -> error "wrong content of token"
-ruleFuncs r ps = error $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
+         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:FunParams fps: _: Pt (StreamToken (_, Str name)):rest) -> 
+            let (ret, pms) = case reverse fps of 
+                    ((_,rt): ps) -> (rt, ps)
+                    [] -> ("Thunk", [])
+            in logStack (Pa [Function {funName = name, params = reverse pms, body = scope, returnType = ret}]:rest) 4
+         ([T LeftParen, T RightParen] ,_:_:rest) ->  
+            logStack (FunParams []:rest) 2
+         ([V "Ast", V "Function"] , Pa f:Pa ast:rest) ->  
+            logStack (Pa (ast ++ f):rest) 2
+         ([V "Ast"] ,Pa a:_) ->  
+            logStack [Pa a] 1
+         ([T Let, T Ident, T Equal, V "Exp", T In] ,_:E e:_:Pt (StreamToken (_, Str str)):_:rest) ->  
+            logStack (Ps (LetIn str e):rest)  5
+         ([T LeftParen, V "Exp", T RightParen] ,_:(E e):_:rest) ->  
+            logStack (E e:rest)  3
+         ([V "Term"] ,(E term):rest) ->  
+            logStack (E term:rest) 1
+         ([V "Exp", V "Op", V "Term"] ,(E rhs):(O o):(E lhs):rest) ->  
+            logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
+         ([V "Exp"] ,[E e]) -> 
+            logStack [Ps (Exp e)] 1 
+         ([V "Function"] ,Pa a:rest) ->  
+            logStack (Pa a:rest) 1
+         ([T Ident, T Colon, V "Types", V "Scope"] ,Ps scope:FunParams fps :_: Pt st:rest) ->  -- Function declarations
+            let StreamToken (_, Str fname) = st in
+            logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
+         ([V "Scope", V "Stm"] ,Ps e:Ps (Scope a):rest) ->  
+            logStack (Ps (Scope (a ++ [e])):rest) 2
+         ([V "Scope", V "Stm"] ,Ps e:Ps a:rest) ->  
+            logStack (Ps (Scope [a, e]):rest) 2
+         ([V "Stm"] ,Ps e:rest) ->  
+            logStack (Ps e:rest) 1
+         ([V "Stm"], [Ps e]) -> 
+            logStack [Ps e] 1
+         ([T Lexer.Plus] ,Pt _:rest) ->   
+            logStack (O Ast.Plus:rest) 1
+         ([T Lexer.Return, V "Exp"] ,(E e):(Pt r):rest) ->  
+            logStack (Ps (Ast.Return e):rest) 2
+         ([T Lexer.Minus] ,Pt _:rest) ->   
+            logStack (O Ast.Minus:rest) 1
+         ([T Lexer.Ident] ,Pt ide:rest) ->  case ide of 
+            StreamToken (_, Str str) -> 
+                logStack (E IExp {ident=str}:rest) 1
+            _ -> error "wrong content of token"
+         ([T Lexer.Literal] ,Pt ide:rest) ->  case ide of 
+                StreamToken (_, I i) -> 
+                    logStack (E LitExp {lit= LI i}:rest) 1
+                _ -> error "wrong content of token"
+         (r, ps) ->  error $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
 
 -------------------- Generating Grammar --------------------
 
