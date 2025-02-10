@@ -7,6 +7,7 @@ import Ast
 import Control.Monad.Writer 
 import Data.Bifunctor (Bifunctor(bimap))
 import Data.Text (pack, splitOn, Text, takeWhile, head, unpack)
+import Data.Text.Internal.Fusion (Stream(Stream))
 
 type Rule = [Atom]
 
@@ -407,7 +408,7 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)] 
+data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)] | FunArgs [Expr]
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -425,9 +426,26 @@ types (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) =
     (fpms, rest)
 types _ = error "in types"
 
+accumulateArgs :: ParseStack ->  ParseStack 
+accumulateArgs (E e: Pt (StreamToken (Comma, _)):rest) = FunArgs [e] : accumulateArgs rest
+accumulateArgs (E e: lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs [e] : lp : rest
+accumulateArgs (res@(FunArgs a): lp@(Pt (StreamToken (LeftParen, _))):rest) = res : lp : rest
+accumulateArgs (Pt (StreamToken (Comma, _)) : rest) = accumulateArgs rest
+accumulateArgs (FunArgs a : FunArgs b : rest) =  accumulateArgs (FunArgs (a ++ b) : rest)
+accumulateArgs e = error $ show e ++ "kfds????"
+
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg : _ : E exp : rest) -> 
+            let funcall = E (FunCall exp [arg]) in
+            logStack (funcall:rest) 4
+         ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:FunArgs args : _ : E exp : rest) -> 
+            let funcall = E (FunCall exp args) in
+            logStack (funcall:rest) 4
+         ([V "Exp", T Comma, V "Fparams"], stack) -> 
+            let args' = accumulateArgs stack in
+            logStack args' 3
          ([V "Types", T RightArrow, T Ident], stack) ->  
             let (pms, rest) = types stack in 
             logStack (pms:rest) 3
@@ -460,8 +478,8 @@ ruleFuncs input stack =
             logStack (E term:rest) 1
          ([V "Exp", V "Op", V "Term"] ,(E rhs):(O o):(E lhs):rest) ->  
             logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
-         ([V "Exp"] ,[E e]) -> 
-            logStack [Ps (Exp e)] 1 
+         ([V "Exp"] ,E e:rest ) -> 
+            logStack (E e:rest) 1 
          ([V "Function"] ,Pa a:rest) ->  
             logStack (Pa a:rest) 1
          ([T Ident, T Colon, V "Types", V "Scope"] ,Ps scope:FunParams fps :_: Pt st:rest) ->  -- Function declarations
@@ -527,6 +545,7 @@ parseAtom text
         "in" -> T In
         "=" -> T Equal 
         ":" -> T Colon
+        "," -> T Comma
         "->" -> T RightArrow 
         e -> error $ "mising data types to parse to for: " ++ e
     

@@ -1,4 +1,5 @@
 module Ast  where 
+import Data.List (uncons)
 
 data Lit = LI Int | LB Bool 
 
@@ -35,6 +36,9 @@ instance Show Expr where
     show LitExp {lit=LI i} =  show i
     show LitExp {lit=LB b} =  show b
     show BinOp {lhs=l, op=o, rhs=r} = "(" ++ show l ++ show o ++ show r ++ ")"
+    show (FunCall fname args) =
+        let argString = foldl (\acc e -> show e ++ " " ++ acc) "" args in
+        show fname ++ "(" ++ argString ++ ")" 
 
 instance Show Stm where 
     show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
@@ -101,3 +105,21 @@ prettyPrintExpr indent xs  BinOp {lhs=l, op=o, rhs=r} =
     let r' = indents ++ restSpaces ++ "\9492" ++  "\9472" in
     start ++ l' ++  prettyPrintExpr (indent + 1) (indent : xs) l 
     ++ r' ++ prettyPrintExpr (indent + 2) xs r
+prettyPrintExpr indent xs (FunCall fname args) = 
+    let start = "FunCall : " ++ "\n" in 
+    let indents = makeIndents 0 xs in 
+    let restSpaces = makeSpaces indent xs in 
+    let name = "fname: " ++ show fname ++ "\n" in 
+    let l = indents ++ restSpaces ++ "\9500" ++  "\9472" in
+    let r = indents ++ restSpaces ++ "\9492" ++  "\9472" in
+    let argString = case Data.List.uncons args  of 
+            Nothing -> "()"
+            Just (x, []) -> "\n" ++ r ++ prettyPrintExpr (indent + 1) xs x 
+            Just (x, restArgs) -> 
+                let end = r ++ prettyPrintExpr (indent + 1) xs x in
+                foldl (\acc arg -> let argStr = prettyPrintExpr (indent + 1) xs arg in 
+                                        l ++ argStr ++ acc
+                                        ) end restArgs  in
+    start ++ l ++  name ++ argString 
+
+

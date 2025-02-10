@@ -18,12 +18,12 @@ Stm => let ident = Exp in
 Stm => return Exp
 
 
-Exp => ident Fparams
+Exp => Exp ( Fparams )
 Exp => Exp Op Term 
 Exp => Term 
 
-Fparams => Exp Fparams
-Fparams => ( )
+Fparams => Exp , Fparams 
+Fparams => Exp
 
 Op => plus 
 Op => minus 

@@ -18,6 +18,7 @@ data Token =
     | Return
     | Colon
     | RightArrow
+    | Comma
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
@@ -50,7 +51,7 @@ instance Monad Incrementer where
     Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
 
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n"
+singleCharTokens = ":()=+- ;\n,"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
@@ -71,6 +72,7 @@ lexicalAnalysis =  helper 0 where
 --- >>> findToken 'l' "eta = " 
 -- Incrementer (Let,3)
 findToken :: Char -> String -> Incrementer (StreamToken Token)
+findToken ',' _ = return $ pure Comma
 findToken ';' _ = return $ pure SemiColon 
 findToken '(' _ = return $ pure LeftParen  
 findToken ')' _ = return $ pure RightParen  
