@@ -1,11 +1,9 @@
 module CodeGen where 
 import TypedAst
-import Data.List (uncons, nub, sortOn)
-import Data.Map as Map
-import Control.Monad (join)
+import Data.List (uncons, findIndex)
 
 type Reg = Int
-data Operand = Lit Int | StrLit String | R Reg | SP Int | Nop
+data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop
     deriving (Eq)
 instance Ord Operand where 
     (<=) (SP i) (SP j) = i <= j
@@ -20,7 +18,7 @@ instance Show Operand where
     show (SP i) = "[SP, " ++ "#-" ++ show i ++ "]!"
     show Nop = ""
 
-data Operation = Mov | Svc Int | Ldr | Add | Str | Sub
+data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret
 
 instance Show Operation where 
     show Mov = "mov"
@@ -29,13 +27,17 @@ instance Show Operation where
     show Add = "add"
     show Str = "str"
     show Sub = "sub"
+    show (BL s) = "bl _" ++ s
+    show Ret = "ret"
 
-data CodeLine = CL Operation [Operand]
+data CodeLine = CL Operation [Operand] 
 
 
 instance Show CodeLine where
+    show (CL (BL func) []) = "bl _" ++ func ++ "\n\t"
     show (CL (Svc i) []) = "svc " ++ show i ++ "\n"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
+    show (CL Ldr [R r, OffSet i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP, #" ++ show i ++ "]\n\t"   
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
 
 printOperandList :: [Operand] -> String 
@@ -63,6 +65,7 @@ printCfg c =
     
 
 addLine :: Env -> CodeLine -> BuildLet (Operand, Env)
+addLine e cl@(CL (BL _) []) = BuildLet (\cfg -> cfg {insns = cl : insns cfg}, (R 0, e))
 addLine e cl@(CL Str (_:op:_)) = BuildLet (\cfg -> cfg {insns = cl : insns cfg}, (op, e))
 addLine e cl@(CL _ (op:_)) = BuildLet (\cfg -> cfg {insns = cl : insns cfg}, (op, e))
 addLine e cl =BuildLet (\cfg -> cfg {insns = cl : insns cfg}, (Nop, e))
@@ -97,7 +100,7 @@ data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], popped
     deriving (Show)
     
 emptyEnv :: Env 
-emptyEnv = Env {stack=0, regs= [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = [], poppedFromStack = []}
+emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11,12,13,14, 0], vars = [], poppedFromStack = []}
 
 
 -- >>> updateStack (R 1) emptyEnv
@@ -110,6 +113,9 @@ updateStack _ e = e
 
 ups :: BuildLet (Operand, Env) -> Env 
 ups (BuildLet (_, (op, env))) = updateStack op env
+
+popSpecReg :: Env -> Int -> Env 
+popSpecReg env i = env {regs = filter (/= i) $ regs env}  
 
 -- will pop a free register if there is one or will return an updated stack position
 popReg :: Env -> (Env, Operand)
@@ -150,9 +156,7 @@ getOp (BuildLet (_, (op, _))) = op
 
 
 
-
-
--- Ugly function that works should be refactored. 
+-- Ugly function that works should be refactored. Found out i did wrong too
 popFromStack :: String -> [(String, Operand)] -> Env -> (BuildLet (Operand, Env), Operand, [String])
 popFromStack str ((cvar, cop):rest) env
     | str /= cvar = 
@@ -169,7 +173,14 @@ popFromStack str ((cvar, cop):rest) env
 popFromStack _ _ env = (return (Nop, env), Nop, [])
 
 
-
+popFromStack2 :: String -> [(String, Operand)] -> Env -> BuildLet (Operand, Env)
+popFromStack2 str variables env = 
+    let index = findIndex (\(var, _) -> var == str) variables in 
+    case index of 
+        Just i -> 
+            let (nenv, popped) = popReg env in
+            addLine nenv $ CL Ldr [popped, OffSet (i*16)] 
+        Nothing -> error $ "The variable: " ++ str ++ " is not on the stack"
 
 -- OBSOLETE
 codegenAndHandleOp :: Env -> Expr -> BuildLet (Operand, Env)
@@ -182,10 +193,10 @@ codegenAndHandleOp e = handleOperand e .  codegenExpr e
 -- Return: BuildLet ~ State monad, in which the state is a CFG
 codegenExpr :: Env -> Expr -> BuildLet (Operand, Env)
 codegenExpr env (Ident str) = case Prelude.lookup str $ vars env of 
-    Just _ -> 
-        let (b, op, _) = popFromStack str (vars env) env in
-        let BuildLet (cfg, (_, env1)) = b in 
-        BuildLet (cfg, (op, env1))
+    Just (R i) -> 
+        BuildLet (id, (R i, env))
+    Just _ -> do
+        popFromStack2 str (vars env) env 
     Nothing -> error $ "variable " ++ str ++ " not in environment"
 codegenExpr env (Literal {tLit=TLI i}) = 
     let (env', op) = popReg env in
@@ -193,17 +204,34 @@ codegenExpr env (Literal {tLit=TLI i}) =
 codegenExpr env (Literal {tLit=TLB b}) 
     | b =  return (Lit 1, env)
     | otherwise = return (Lit 0, env)
-codegenExpr env (BinOp l op r _) = do
+codegenExpr env (BinOp l op r _) = 
     let binop = case op of 
             Plus -> Add 
             Minus -> Sub
-    lused <- codegenAndHandleOp env l
-    rused <- codegenAndHandleOp (snd lused) r 
-    let (le, nextop) = popReg $ snd rused
-    addLine le $ CL binop [nextop, fst lused, fst rused]
-
-
-
+    in
+    case l of 
+        (BinOp {}) ->  do
+            lused <- codegenAndHandleOp env l
+            rused <- codegenAndHandleOp (snd lused) r 
+            let (le, nextop) = popReg $ snd rused
+            addLine le $ CL binop [nextop, fst lused, fst rused]
+        _ -> do 
+            rused <- codegenAndHandleOp env r 
+            lused <- codegenAndHandleOp (snd rused) l
+            let (le, nextop) = popReg $ snd lused
+            addLine le $ CL binop [nextop, fst lused, fst rused]
+codegenExpr env (FunCall fname args _) = do
+    let fn = case fname of    
+            (Ident str) -> str 
+            _ -> error "malformed function call"
+    _ <- fst $ Prelude.foldr (\arg (acc, i) -> 
+                let code = do
+                        (op, nenv) <- codegenExpr (getEnv acc) arg
+                        addLine nenv $ CL Mov [R i, op] 
+                in (code, i + 1)
+            ) (BuildLet (id, (R 0, env)), 0) args
+    
+    addLine env $ CL (BL fn) []
 
 -- codegenStm: constructs a CFG from a given statement
 -- Params: Env ~ the environment  
@@ -219,10 +247,9 @@ codegenStm env (LetIn ident expr _) =
     BuildLet (cfg, (fst b, newenv))
 codegenStm env (Return expr _) = do
             a <- codegenAndHandleOp env expr 
-            _ <- case a of (SP i, e) -> addLine e $ CL Ldr [R 0, SP i]
-                           (_, e) -> addLine e  $ CL Mov [R 0, fst a] 
-            _ <- addLine env $ CL Mov [R 16, Lit 1]
-            addLine env (CL (Svc 0) [] )
+            case a of 
+                    (SP i, e) -> addLine e $ CL Ldr [R 0, SP i]
+                    (_, e) -> addLine e  $ CL Mov [R 0, fst a] 
 codegenStm env (Scope stms) = 
     Prelude.foldl (\acc stm ->  
                                 let a = codegenStm (getEnv acc) stm 
@@ -237,9 +264,15 @@ getEnv (BuildLet (_ ,(_, e))) = e
 codegenFunc :: Env -> Function -> (BuildLet Operand, Env)
 codegenFunc env func = do 
     let label = "_" ++ funName func 
-    let newnev = fst . Prelude.foldl (\(acc, iter) (str, _) -> (insertIntoEnv str (R iter) acc, iter + 1)) (env, 0) $ params func
+    let newnev = fst . Prelude.foldl (\(acc, iter) (str, _) -> (let e = insertIntoEnv str (R iter) acc in popSpecReg e iter , iter + 1)) (env, 0) $ params func
     let buildlet = codegenStm newnev $ body func 
-    (buildlet >> BuildLet (addBlock label, R 0), getEnv buildlet)
+    let ending = if funName func == "main" then do 
+            _ <- addLine env $ CL Mov [R 16, Lit 1]
+            addLine env (CL (Svc 0) [] )
+        else do    
+            addLine env (CL Ret [] )
+            
+    (buildlet >> ending >> BuildLet (addBlock label, R 0), getEnv buildlet)
 
 codegenAst :: TypedAst -> String 
 codegenAst funcs = 

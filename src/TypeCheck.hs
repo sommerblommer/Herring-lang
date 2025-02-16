@@ -1,7 +1,7 @@
 module TypeCheck where 
 import Ast 
 import TypedAst as TAST
-import Data.Map
+import Data.Map as DM
 import Data.List 
 
 typeOfFunction :: Ast.Op -> Typ
@@ -13,14 +13,22 @@ emptEnv :: Env
 emptEnv = Env {vars = empty, functions = []}
 
 insertIntoEnv :: String -> Typ -> Env -> Env 
-insertIntoEnv s t e = e {vars = Data.Map.insert s t $ vars e}
+insertIntoEnv s t e = e {vars = DM.insert s t $ vars e}
 
-lookupFunc ::  Env -> String -> TAST.Expr 
-lookupFunc env ident = case find (\a -> TAST.funName a == ident) (functions env) of 
-    Just _ -> TAST.Ident ident
-    Nothing -> case Data.Map.lookup ident (vars env) of 
-        Just _ -> TAST.Ident ident 
-        Nothing -> error $ ident ++ " not a function"
+lookupFunc ::  Env -> String -> TAST.Function 
+lookupFunc env iden = case find (\a -> TAST.funName a == iden) (functions env) of 
+    Just function -> function
+    Nothing -> error "function as variables not supported yet" 
+
+getTypeOfExpr :: Env -> TAST.Expr -> Typ 
+getTypeOfExpr env (Ident var) = case vars env DM.!? var  of 
+    Just t -> t 
+    Nothing -> error $ show var ++ " has no type"
+getTypeOfExpr _ Literal {tLit=l} = case l of 
+    (TLI _) -> IntType 
+    (TLB _) -> BoolType
+getTypeOfExpr _ (TAST.BinOp _ _ _ t) = t
+getTypeOfExpr _ (TAST.FunCall _ _ t) = t
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
 typeCheckExpr _ LitExp {lit = LI i} = (TAST.Literal {tLit = TLI i}, IntType)
@@ -29,7 +37,7 @@ typeCheckExpr env IExp {ident = str} =
     let lup = vars env !? str in 
     case lup of 
         Just t -> (Ident str, t)
-        Nothing -> error $ "variable: " ++ str ++ " has not defined"
+        Nothing -> error $ "variable: " ++ str ++ " has not been defined"
 typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} = 
     let (leftExp, ltyp) = typeCheckExpr env l in
     let (rightExp, rtyp) = typeCheckExpr env r in
@@ -38,13 +46,19 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
         (TAST.BinOp leftExp TAST.Plus rightExp opType, opType)
     else 
         error "type mismatch"
-typeCheckExpr env (Ast.FunCall fvar params) = 
-    let typedFvar = case fvar of 
-            (IExp {ident = ide} ) -> lookupFunc env ide  
+typeCheckExpr env (Ast.FunCall fvar args) = 
+    let (typedFvar, fname) = case fvar of 
+            (IExp {ident = ide} ) -> (lookupFunc env ide, ide)
             _ -> error $ show fvar ++ " not a valid function call"
     in
-    
-    error ""
+    let typedArgs = Data.List.map (\(arg, (_, pType)) -> 
+                let (typeArg, typ) = typeCheckExpr env arg in
+                if pType == typ  then 
+                    typeArg else error $ show fvar ++ " is called with wrong types"
+            ) $ zip args $ TAST.params typedFvar
+    in
+    let rType = TAST.returnType typedFvar in
+    (TAST.FunCall (Ident fname) typedArgs rType, rType) 
 typeCheckExpr _ e = error $ show e ++ " not impplemented"
 
 typeCheckStm :: Env -> Ast.Stm -> (TAST.Stm, Env)

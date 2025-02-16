@@ -1,4 +1,5 @@
 module TypedAst where 
+import Data.List (uncons)
 
 data Typ = IntType | BoolType | StringType
     deriving (Eq, Show)
@@ -31,6 +32,7 @@ instance Show Expr where
     show (Literal {tLit=TLI i}) =  show i
     show (Literal {tLit=TLB i}) =  show i
     show (BinOp l o r t) = "(" ++ show l ++ show o ++ show r ++ ") : " ++ show t
+    show (FunCall name args t) = show name ++ "(" ++ foldr (\a acc -> acc ++ show a ++ ", ") "" args ++ "type " ++ show t
 
 
 prettyPrintTypedAst :: TypedAst -> String 
@@ -84,4 +86,22 @@ prettyPrintExpr indent xs  (BinOp l o r t) =
     let l' = indents ++ restSpaces ++ "\9500" ++  "\9472" in
     let r' = indents ++ restSpaces ++ "\9492" ++  "\9472" in
     start ++ l' ++  prettyPrintExpr (indent + 1) (indent : xs) l 
-    ++ r' ++ prettyPrintExpr (indent + 2) xs r  
+    ++ r' ++ prettyPrintExpr (indent + 2) xs r   
+prettyPrintExpr indent xs (FunCall fname args typ) = 
+    let start = "FunCall : " ++ "\n" in 
+    let indents = makeIndents 0 xs in 
+    let restSpaces = makeSpaces indent xs in 
+    let name = "fname: " ++ show fname ++ "\n" in 
+    let l = indents ++ restSpaces ++ "\9500" ++  "\9472" in
+    let r = indents ++ restSpaces ++ "\9492" ++  "\9472" in
+    let argString = case uncons args  of 
+            Nothing -> "()"
+            Just (x, []) -> r ++ prettyPrintExpr (indent + 1) xs x 
+            Just (x, restArgs) -> 
+                let end = r ++ prettyPrintExpr (indent + 1) xs x in
+                foldl (\acc arg -> let argStr = prettyPrintExpr (indent + 1) xs arg in 
+                                        l ++ argStr ++ acc
+                                        ) end restArgs  in
+    start ++ l ++  name ++ argString 
+
+
