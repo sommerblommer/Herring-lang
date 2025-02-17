@@ -426,13 +426,12 @@ types (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) =
     (fpms, rest)
 types _ = error "in types"
 
-accumulateArgs :: ParseStack ->  ParseStack 
-accumulateArgs (E e: Pt (StreamToken (Comma, _)):rest) = FunArgs [e] : accumulateArgs rest
-accumulateArgs (E e: lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs [e] : lp : rest
-accumulateArgs (res@(FunArgs a): lp@(Pt (StreamToken (LeftParen, _))):rest) = res : lp : rest
-accumulateArgs (Pt (StreamToken (Comma, _)) : rest) = accumulateArgs rest
-accumulateArgs (FunArgs a : FunArgs b : rest) =  accumulateArgs (FunArgs (a ++ b) : rest)
-accumulateArgs e = error $ show e ++ "kfds????"
+accumulateArgs :: [Expr] -> ParseStack ->  ParseStack 
+accumulateArgs acc (E e: Pt (StreamToken (Comma, _)):rest) =  accumulateArgs [e] rest
+accumulateArgs acc (E e: lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (e : acc) : lp : rest
+accumulateArgs acc (res@(FunArgs a): lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (a ++ acc) : lp : rest
+accumulateArgs acc (Pt (StreamToken (Comma, _)) : rest) = accumulateArgs acc rest
+accumulateArgs _ e = error $ show e ++ "kfds????"
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
@@ -444,7 +443,7 @@ ruleFuncs input stack =
             let funcall = E (FunCall exp args) in
             logStack (funcall:rest) 4
          ([V "Exp", T Comma, V "Fparams"], stack) -> 
-            let args' = accumulateArgs stack in
+            let args' = accumulateArgs [] stack in
             logStack args' 3
          ([V "Types", T RightArrow, T Ident], stack) ->  
             let (pms, rest) = types stack in 
