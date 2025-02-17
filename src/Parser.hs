@@ -428,8 +428,8 @@ types _ = error "in types"
 
 accumulateArgs :: [Expr] -> ParseStack ->  ParseStack 
 accumulateArgs acc (E e: Pt (StreamToken (Comma, _)):rest) =  accumulateArgs [e] rest
-accumulateArgs acc (E e: lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (e : acc) : lp : rest
-accumulateArgs acc (res@(FunArgs a): lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (a ++ acc) : lp : rest
+accumulateArgs acc (E e: lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (acc ++ [e]) : lp : rest
+accumulateArgs acc (res@(FunArgs a): lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (acc ++ a) : lp : rest
 accumulateArgs acc (Pt (StreamToken (Comma, _)) : rest) = accumulateArgs acc rest
 accumulateArgs _ e = error $ show e ++ "kfds????"
 

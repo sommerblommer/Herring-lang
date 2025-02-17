@@ -107,6 +107,7 @@ emptyEnv :: Env
 emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11,12,13,14, 0], vars = [], poppedFromStack = []}
 
 
+
 -- >>> updateStack (R 1) emptyEnv
 -- Env {stack = 0, regs = [0,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = [], poppedFromStack = []}
 
@@ -279,7 +280,7 @@ codegenFunc env func = do
             _ <- addLine env $ CL Mov [R 16, Lit 1]
             addLine env (CL (Svc 0) [] )
         else do    
-            _ <- addLine newnev $ CL Ldr [LR, AccThenUp (16 * length (vars newnev))]
+            _ <- addLine newnev $ CL Ldr [LR, AccThenUp (16 * (1 + length (getStackVars newnev)))]
             addLine env (CL Ret [] )
             
     (prelude >> buildlet >> ending >> BuildLet (addBlock label, R 0), getEnv buildlet)
