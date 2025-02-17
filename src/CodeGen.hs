@@ -3,7 +3,7 @@ import TypedAst
 import Data.List (uncons, findIndex)
 
 type Reg = Int
-data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop
+data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop | LR | AccThenUp Int 
     deriving (Eq)
 instance Ord Operand where 
     (<=) (SP i) (SP j) = i <= j
@@ -16,6 +16,9 @@ instance Show Operand where
     show (StrLit s) = show s 
     show (R r) = "X" ++ show r 
     show (SP i) = "[SP, " ++ "#-" ++ show i ++ "]!"
+    show LR = "LR"
+    show (OffSet i) = "[SP, " ++ show i ++ "]"
+    show (AccThenUp i) = "[SP], " ++ show i
     show Nop = ""
 
 data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret
@@ -38,6 +41,7 @@ instance Show CodeLine where
     show (CL (Svc i) []) = "svc " ++ show i ++ "\n"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
     show (CL Ldr [R r, OffSet i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP, #" ++ show i ++ "]\n\t"   
+    show (CL Ldr [R r, AccThenUp i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "]\n\t"   
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
 
 printOperandList :: [Operand] -> String 
@@ -264,15 +268,21 @@ getEnv (BuildLet (_ ,(_, e))) = e
 codegenFunc :: Env -> Function -> (BuildLet Operand, Env)
 codegenFunc env func = do 
     let label = "_" ++ funName func 
+    let prelude = if funName func == "main" then
+            BuildLet (id, (Nop, env)) 
+            else 
+                addLine env $ CL Str [LR, SP 16]
+
     let newnev = fst . Prelude.foldl (\(acc, iter) (str, _) -> (let e = insertIntoEnv str (R iter) acc in popSpecReg e iter , iter + 1)) (env, 0) $ params func
     let buildlet = codegenStm newnev $ body func 
     let ending = if funName func == "main" then do 
             _ <- addLine env $ CL Mov [R 16, Lit 1]
             addLine env (CL (Svc 0) [] )
         else do    
+            _ <- addLine newnev $ CL Ldr [LR, AccThenUp (16 * length (vars newnev))]
             addLine env (CL Ret [] )
             
-    (buildlet >> ending >> BuildLet (addBlock label, R 0), getEnv buildlet)
+    (prelude >> buildlet >> ending >> BuildLet (addBlock label, R 0), getEnv buildlet)
 
 codegenAst :: TypedAst -> String 
 codegenAst funcs = 
