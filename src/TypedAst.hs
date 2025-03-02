@@ -1,5 +1,8 @@
 module TypedAst where 
-import Data.List (uncons)
+import Data.List (uncons) 
+
+predefinedFunctions :: [Function]
+predefinedFunctions = [Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}]
 
 data Typ = IntType | BoolType | StringType
     deriving (Eq, Show)
@@ -7,7 +10,7 @@ data Typ = IntType | BoolType | StringType
 data Lit = TLI Int | TLB Bool
     deriving (Show)
 
-data Op = Plus | Minus
+data Op = Plus | Minus | Mult
     deriving (Show)
 
 data Expr = 

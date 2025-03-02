@@ -494,6 +494,8 @@ ruleFuncs input stack =
             logStack [Ps e] 1
          ([T Lexer.Plus] ,Pt _:rest) ->   
             logStack (O Ast.Plus:rest) 1
+         ([T Lexer.Star] ,Pt _:rest) ->   
+            logStack (O Ast.Mult:rest) 1
          ([T Lexer.Return, V "Exp"] ,(E e):(Pt r):rest) ->  
             logStack (Ps (Ast.Return e):rest) 2
          ([T Lexer.Minus] ,Pt _:rest) ->   
@@ -537,6 +539,7 @@ parseAtom text
         "ident" -> T Ident 
         "plus" -> T Lexer.Plus 
         "minus" -> T Lexer.Minus
+        "mult" -> T Lexer.Star
         "return" -> T Lexer.Return
         "(" -> T LeftParen 
         ")" -> T RightParen

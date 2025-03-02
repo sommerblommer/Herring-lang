@@ -27,6 +27,7 @@ Fparams => Exp
 
 Op => plus 
 Op => minus 
+Op => mult
 
 Term => ( Exp ) 
 Term => literal 

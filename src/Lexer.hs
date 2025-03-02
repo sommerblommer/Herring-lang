@@ -9,6 +9,7 @@ data Token =
     | Equal
     | Plus
     | Minus 
+    | Star 
     | SemiColon
     | EOF
     | Let 
@@ -80,6 +81,7 @@ findToken '{' _ = return $ pure LeftBracket
 findToken '}' _ = return $ pure RightBreacket  
 findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
+findToken '*' _ = return $ pure Star
 findToken ':' _ = return $ pure Colon
 findToken '\n' (x:xs) = return ' ' >> findToken x xs
 findToken '\n' [] = return $ pure EOF

@@ -1,9 +1,10 @@
 module CodeGen where 
 import TypedAst
 import Data.List (uncons, findIndex)
+import Lib (stdLib)
 
 type Reg = Int
-data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop | LR | AccThenUp Int 
+data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop | LR | AccThenUp Int | SPP
     deriving (Eq)
 instance Ord Operand where 
     (<=) (SP i) (SP j) = i <= j
@@ -12,25 +13,28 @@ instance Ord Operand where
     (<=) _ _ = True
 
 instance Show Operand where 
-    show (Lit i) = "#" ++ show i
+    show (Lit i) =  show i
     show (StrLit s) = show s 
     show (R r) = "X" ++ show r 
     show (SP i) = "[SP, " ++ "#-" ++ show i ++ "]!"
     show LR = "LR"
     show (OffSet i) = "[SP, " ++ show i ++ "]"
     show (AccThenUp i) = "[SP], " ++ show i
+    show SPP = "SP"
     show Nop = ""
 
-data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret
+
+data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret | Mul
 
 instance Show Operation where 
     show Mov = "mov"
-    show (Svc i) = "svc " ++ show i
+    show (Svc i) = "svc #0x0" ++ show i
     show Ldr = "ldr"
     show Add = "add"
     show Str = "str"
     show Sub = "sub"
     show (BL s) = "bl _" ++ s
+    show Mul = "mul"
     show Ret = "ret"
 
 data CodeLine = CL Operation [Operand] 
@@ -38,10 +42,11 @@ data CodeLine = CL Operation [Operand]
 
 instance Show CodeLine where
     show (CL (BL func) []) = "bl _" ++ func ++ "\n\t"
-    show (CL (Svc i) []) = "svc " ++ show i ++ "\n"
+    show (CL (Svc i) []) = "svc #0x80\n"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
     show (CL Ldr [R r, OffSet i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP, #" ++ show i ++ "]\n\t"   
     show (CL Ldr [R r, AccThenUp i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "]\n\t"   
+    show (CL Ret []) = "ret\n" 
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
 
 printOperandList :: [Operand] -> String 
@@ -54,16 +59,26 @@ type Block = [CodeLine]
 
 
 
+
 data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine]}
     deriving (Show)
 
 printCfg :: Cfg -> String 
 printCfg c =
-      Prelude.foldl (\acc x -> acc ++ helper x)  (header ++ "\n\n") $ blocks c  
-        where 
-        helper :: (String, Block) -> String 
-        helper (label, block) =
-             label ++ ":\n\t" ++ Prelude.foldr (\cl acc ->  acc ++ show cl) "" block
+       let a = Prelude.foldl (\acc x -> acc ++ helper x)  (header ++ "\n\n") $ blocks c  
+            where 
+            helper :: (String, Block) -> String 
+            helper (label, block) =
+                label ++ ":\n\t" ++ Prelude.foldr (\cl acc ->  acc ++ show cl) "" block
+        in 
+        let epilogue = 
+                "\n.data \
+                \\nnum: .asciz \"%d\\n\" \
+                \\n.align 4\
+                \\n.text"
+
+        in
+        a ++ stdLib ++ epilogue
     -- should be correct when there are multiple blocks
     -- header ++ Prelude.foldr (\(label, block) acc -> label ++ "\n\t" ++ Prelude.foldl (\acc x -> acc ++show x) "" block ++ acc) "" (blocks c)
     
@@ -108,8 +123,6 @@ emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11,12,13,14, 0], vars = [],
 
 
 
--- >>> updateStack (R 1) emptyEnv
--- Env {stack = 0, regs = [0,2,3,4,5,6,7,8,9,10,11,12,13,14], vars = [], poppedFromStack = []}
 
 updateStack :: Operand -> Env -> Env
 updateStack (R r) e = e {regs = if r `elem` regs e then Prelude.filter (/= r) (regs e) else r : regs e}
@@ -213,6 +226,7 @@ codegenExpr env (BinOp l op r _) =
     let binop = case op of 
             Plus -> Add 
             Minus -> Sub
+            Mult -> Mul
     in
     case l of 
         (BinOp {}) ->  do
@@ -250,17 +264,20 @@ codegenStm env (LetIn ident expr _) =
     in
     let newenv = insertIntoEnv ident (fst b) env in 
     BuildLet (cfg, (fst b, newenv))
+
 codegenStm env (Return expr _) = do
             a <- codegenAndHandleOp env expr 
             case a of 
                     (SP i, e) -> addLine e $ CL Ldr [R 0, SP i]
                     (_, e) -> addLine e  $ CL Mov [R 0, fst a] 
+
 codegenStm env (Scope stms) = 
     Prelude.foldl (\acc stm ->  
                                 let a = codegenStm (getEnv acc) stm 
                                 in
                                 acc >> a
                 ) (BuildLet (id, (R 0, env))) stms 
+
 codegenStm _ _ = error  "not implemented yet for stm"
 
 getEnv :: BuildLet (Operand, Env) -> Env 
@@ -268,7 +285,7 @@ getEnv (BuildLet (_ ,(_, e))) = e
 
 codegenFunc :: Env -> Function -> (BuildLet Operand, Env)
 codegenFunc env func = do 
-    let label = "_" ++ funName func 
+    let label = if funName func /= "main" then "_" ++ funName func else "_start"
     let prelude = if funName func == "main" then
             BuildLet (id, (Nop, env)) 
             else 
@@ -291,13 +308,28 @@ codegenAst funcs =
                 let (buildlet, _) = codegenFunc env stm in
                 (acc >> buildlet, env)
             ) (BuildLet (id, R 0), emptyEnv) funcs in
-    printCfg $ cfg emptyCfg
+    printCfg $ cfg  emptyCfg
     
 
 header :: String 
-header = ".global _main\n.align 2\n"
+header = ".global _start\n.align 4\n"
 
 
+generatePrintFunc :: (Cfg -> Cfg) 
+generatePrintFunc =
+            let BuildLet (cfg, _) = do 
+                    _ <- addLine emptyEnv (CL Str [LR, SP 16])
+                    _ <- addLine emptyEnv (CL Mov [R 1, R 0])
+                    _ <- addLine emptyEnv $ CL Str [R 1, SP 16]
+                    _ <- addLine emptyEnv $ CL (BL "_printf") []
+                    _ <- addLine emptyEnv $ CL Add [SPP, SPP, Lit 32]
+                    _ <- addLine emptyEnv (CL (Svc 0) [])
+                    _ <- addLine emptyEnv $ CL Ldr [LR, AccThenUp 16]
+                    _ <- addLine emptyEnv (CL Ret [] )
+                    BuildLet (addBlock "_print", R 0)
+            in
+            cfg
+    
 
 
 

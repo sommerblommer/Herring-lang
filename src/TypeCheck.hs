@@ -6,7 +6,13 @@ import Data.List
 
 typeOfFunction :: Ast.Op -> Typ
 typeOfFunction Ast.Plus = IntType 
+typeOfFunction Ast.Mult = IntType 
 typeOfFunction Ast.Minus = IntType
+
+astOpToTASTOp :: Ast.Op -> TAST.Op
+astOpToTASTOp Ast.Plus = TAST.Plus 
+astOpToTASTOp Ast.Mult = TAST.Mult 
+astOpToTASTOp Ast.Minus = TAST.Minus
 
 data Env = Env {vars :: Map String Typ, functions :: [TAST.Function]}
 emptEnv :: Env 
@@ -18,7 +24,9 @@ insertIntoEnv s t e = e {vars = DM.insert s t $ vars e}
 lookupFunc ::  Env -> String -> TAST.Function 
 lookupFunc env iden = case find (\a -> TAST.funName a == iden) (functions env) of 
     Just function -> function
-    Nothing -> error "function as variables not supported yet" 
+    Nothing -> case find (\f -> TAST.funName f == iden) predefinedFunctions of
+                    Just f -> f
+                    Nothing -> error "function as variables not supported yet" 
 
 getTypeOfExpr :: Env -> TAST.Expr -> Typ 
 getTypeOfExpr env (Ident var) = case vars env DM.!? var  of 
@@ -43,7 +51,7 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
     let (rightExp, rtyp) = typeCheckExpr env r in
     let opType = typeOfFunction operator in
     if ltyp == opType && rtyp == opType then 
-        (TAST.BinOp leftExp TAST.Plus rightExp opType, opType)
+        (TAST.BinOp leftExp (astOpToTASTOp operator) rightExp opType, opType)
     else 
         error "type mismatch"
 typeCheckExpr env (Ast.FunCall fvar args) = 

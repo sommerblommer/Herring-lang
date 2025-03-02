@@ -3,7 +3,7 @@ import Data.List (uncons)
 
 data Lit = LI Int | LB Bool 
 
-data Op = Plus | Minus 
+data Op = Plus | Minus | Mult  
 type Ast = [Function]
 
 data Expr = 
@@ -30,6 +30,7 @@ data Function = Function {funName :: String, params :: [(String, String)], body 
 instance Show Op where 
     show Plus = "+"
     show Minus = "-"
+    show Mult = "*"
 
 instance Show Expr where
     show IExp {ident=s} = s 
