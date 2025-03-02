@@ -1,7 +1,11 @@
 main : Int
-let y = 69 in
-let x = 1 + 2 in
-return y + x
+    let y = 42 in
+    let _ = print (y + 5) in
+    return 1
+
+
+
+    
 
 
 
