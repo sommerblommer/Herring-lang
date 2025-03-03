@@ -16,6 +16,7 @@ data Stm =
     LetIn String Expr 
     | Return Expr
     | Scope [Stm]
+    | IfThenElse Expr Expr Expr
     | Exp Expr
 
 data Function = Function {funName :: String, params :: [(String, String)], body :: Stm, returnType :: String}

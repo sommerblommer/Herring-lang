@@ -20,6 +20,13 @@ data Token =
     | Colon
     | RightArrow
     | Comma
+    | If 
+    | Then
+    | Else
+    | Lt 
+    | Gt 
+    | Lte 
+    | Gte 
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
@@ -83,6 +90,8 @@ findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
 findToken '*' _ = return $ pure Star
 findToken ':' _ = return $ pure Colon
+findToken '>' _ = return $ pure Gt
+findToken '<' _ = return $ pure Lt
 findToken '\n' (x:xs) = return ' ' >> findToken x xs
 findToken '\n' [] = return $ pure EOF
 findToken ' ' (x:xs) = return ' ' >> findToken x xs
@@ -96,10 +105,15 @@ identToLit a = a
 
 checkIdentForReserved :: StreamToken Token -> StreamToken Token 
 checkIdentForReserved (StreamToken (Ident, Str "->")) = pure RightArrow
+checkIdentForReserved (StreamToken (Ident, Str ">=")) = pure Gte
+checkIdentForReserved (StreamToken (Ident, Str "<=")) = pure Lte
 checkIdentForReserved (StreamToken (Ident, Str "-")) = pure Minus
 checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
 checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
 checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
+checkIdentForReserved (StreamToken (Ident, Str "If")) = pure If
+checkIdentForReserved (StreamToken (Ident, Str "Then")) = pure Then
+checkIdentForReserved (StreamToken (Ident, Str "Else")) = pure Else
 checkIdentForReserved a = a
 
 findIdent :: String -> Char -> String -> Incrementer (StreamToken Token)

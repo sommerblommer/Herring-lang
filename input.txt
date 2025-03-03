@@ -1,12 +1,11 @@
+foo : (a : Int) -> Int 
+    return a + 1
 main : Int
     let y = 42 in
-    let _ = print (y + 5) in
+    if y > 42 then 
+        let _ = print (foo (y) + 5) in
+    else 
+        print(42)
     return 1
-
-
-
-    
-
-
 
 

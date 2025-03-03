@@ -436,6 +436,10 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         -- if-then-else statement
+         ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el : _ : E thn : _ : E condition : _ : rest) -> 
+            let funcall = Ps (IfThenElse condition thn el) in
+            logStack (funcall:rest) 4
          ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg : _ : E exp : rest) -> 
             let funcall = E (FunCall exp [arg]) in
             logStack (funcall:rest) 4
@@ -536,6 +540,9 @@ parseAtom text
         V (unpack text)
     | otherwise = case unpack text of 
         "literal" -> T Literal 
+        "if" -> T If
+        "Then" -> T Then 
+        "Else" -> T Else
         "ident" -> T Ident 
         "plus" -> T Lexer.Plus 
         "minus" -> T Lexer.Minus
