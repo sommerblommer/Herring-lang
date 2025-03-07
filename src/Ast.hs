@@ -3,7 +3,7 @@ import Data.List (uncons)
 
 data Lit = LI Int | LB Bool 
 
-data Op = Plus | Minus | Mult  
+data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte
 type Ast = [Function]
 
 data Expr = 
@@ -32,6 +32,10 @@ instance Show Op where
     show Plus = "+"
     show Minus = "-"
     show Mult = "*"
+    show Lt = "<"
+    show Lte = "<="
+    show Gt = ">"
+    show Gte = ">="
 
 instance Show Expr where
     show IExp {ident=s} = s 
@@ -46,6 +50,7 @@ instance Show Stm where
     show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
     show (Return e) = "return " ++ show e
     show (Scope stms) = foldl (\acc s -> acc ++ " " ++show s) "" stms
+    show (IfThenElse cond th el) = "if " ++ show cond ++ " then " ++ show th ++ " else " ++ show el
     show (Exp ex) = show ex
 
 
@@ -86,6 +91,10 @@ prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e
 prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
 prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr (6 + length str) [] ex
+prettyPrintStm (IfThenElse cond th el) = 
+    "if\n\9500\9472 " ++ prettyPrintExpr 2 [0] cond 
+    ++ "\9500\9472then " ++ prettyPrintExpr 2 [0] th 
+    ++ "\9500\9472else " ++ prettyPrintExpr 2 [] el
 
 makeIndents :: Int -> [Int] -> String 
 makeIndents _ [] = ""
@@ -111,7 +120,7 @@ prettyPrintExpr indent xs (FunCall fname args) =
     let start = "FunCall : " ++ "\n" in 
     let indents = makeIndents 0 xs in 
     let restSpaces = makeSpaces indent xs in 
-    let name = "fname: " ++ show fname ++ "\n" in 
+    let name = "fname: " ++ show fname  in 
     let l = indents ++ restSpaces ++ "\9500" ++  "\9472" in
     let r = indents ++ restSpaces ++ "\9492" ++  "\9472" in
     let argString = case Data.List.uncons args  of 

@@ -111,9 +111,9 @@ checkIdentForReserved (StreamToken (Ident, Str "-")) = pure Minus
 checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
 checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
 checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
-checkIdentForReserved (StreamToken (Ident, Str "If")) = pure If
-checkIdentForReserved (StreamToken (Ident, Str "Then")) = pure Then
-checkIdentForReserved (StreamToken (Ident, Str "Else")) = pure Else
+checkIdentForReserved (StreamToken (Ident, Str "if")) = pure If
+checkIdentForReserved (StreamToken (Ident, Str "then")) = pure Then
+checkIdentForReserved (StreamToken (Ident, Str "else")) = pure Else
 checkIdentForReserved a = a
 
 findIdent :: String -> Char -> String -> Incrementer (StreamToken Token)

@@ -16,7 +16,7 @@ main = do
     putStrLn $ prettyPrintAst parsed 
     putStrLn $ replicate 40 '*'
     let typedAst = typeCheckAst parsed 
-    putStrLn $ prettyPrintTypedAst typedAst
+    --putStrLn $ prettyPrintTypedAst typedAst
     putStrLn "code: "
     let compiled = codegenAst  typedAst
     putStrLn compiled 

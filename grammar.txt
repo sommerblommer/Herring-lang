@@ -26,9 +26,14 @@ Exp => Term
 Fparams => Exp , Fparams 
 Fparams => Exp
 
+
 Op => plus 
 Op => minus 
 Op => mult
+Op => lt 
+Op => lte 
+Op => gt 
+Op => gte
 
 Term => ( Exp ) 
 Term => literal 

@@ -439,7 +439,7 @@ ruleFuncs input stack =
          -- if-then-else statement
          ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el : _ : E thn : _ : E condition : _ : rest) -> 
             let funcall = Ps (IfThenElse condition thn el) in
-            logStack (funcall:rest) 4
+            logStack (funcall:rest) 6
          ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg : _ : E exp : rest) -> 
             let funcall = E (FunCall exp [arg]) in
             logStack (funcall:rest) 4
@@ -504,6 +504,14 @@ ruleFuncs input stack =
             logStack (Ps (Ast.Return e):rest) 2
          ([T Lexer.Minus] ,Pt _:rest) ->   
             logStack (O Ast.Minus:rest) 1
+         ([T Lexer.Lt] ,Pt _:rest) ->   
+            logStack (O Ast.Lt:rest) 1
+         ([T Lexer.Lte] ,Pt _:rest) ->   
+            logStack (O Ast.Lte:rest) 1
+         ([T Lexer.Gt] ,Pt _:rest) ->   
+            logStack (O Ast.Gt:rest) 1
+         ([T Lexer.Gte] ,Pt _:rest) ->   
+            logStack (O Ast.Gte:rest) 1
          ([T Lexer.Ident] ,Pt ide:rest) ->  case ide of 
             StreamToken (_, Str str) -> 
                 logStack (E IExp {ident=str}:rest) 1
@@ -541,8 +549,8 @@ parseAtom text
     | otherwise = case unpack text of 
         "literal" -> T Literal 
         "if" -> T If
-        "Then" -> T Then 
-        "Else" -> T Else
+        "then" -> T Then 
+        "else" -> T Else
         "ident" -> T Ident 
         "plus" -> T Lexer.Plus 
         "minus" -> T Lexer.Minus
@@ -556,5 +564,9 @@ parseAtom text
         ":" -> T Colon
         "," -> T Comma
         "->" -> T RightArrow 
+        "lt" -> T Lexer.Lt
+        "lte" -> T Lexer.Lte
+        "gt" -> T Lexer.Gt
+        "gte" -> T Lexer.Gte
         e -> error $ "mising data types to parse to for: " ++ e
     

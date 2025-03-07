@@ -7,12 +7,20 @@ import Data.List
 typeOfFunction :: Ast.Op -> Typ
 typeOfFunction Ast.Plus = IntType 
 typeOfFunction Ast.Mult = IntType 
-typeOfFunction Ast.Minus = IntType
+typeOfFunction Ast.Minus = IntType 
+typeOfFunction Ast.Lt = BoolType 
+typeOfFunction Ast.Gt = BoolType 
+typeOfFunction Ast.Lte = BoolType
+typeOfFunction Ast.Gte = BoolType 
 
 astOpToTASTOp :: Ast.Op -> TAST.Op
 astOpToTASTOp Ast.Plus = TAST.Plus 
 astOpToTASTOp Ast.Mult = TAST.Mult 
 astOpToTASTOp Ast.Minus = TAST.Minus
+astOpToTASTOp Ast.Lt = TAST.Lt 
+astOpToTASTOp Ast.Gt = TAST.Gt 
+astOpToTASTOp Ast.Lte = TAST.Lte
+astOpToTASTOp Ast.Gte = TAST.Gte 
 
 data Env = Env {vars :: Map String Typ, functions :: [TAST.Function]}
 emptEnv :: Env 
@@ -50,7 +58,7 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
     let (leftExp, ltyp) = typeCheckExpr env l in
     let (rightExp, rtyp) = typeCheckExpr env r in
     let opType = typeOfFunction operator in
-    if ltyp == opType && rtyp == opType then 
+    if ltyp == rtyp then 
         (TAST.BinOp leftExp (astOpToTASTOp operator) rightExp opType, opType)
     else 
         error "type mismatch"
@@ -87,6 +95,14 @@ typeCheckStm env (Ast.Return expr) =
 typeCheckStm env (Ast.Exp expr) =
     let (texpr, exprtype) = typeCheckExpr env expr in
     (TAST.StmExpr texpr exprtype, env)
+typeCheckStm env (Ast.IfThenElse cond th el) = 
+    let (tcnd, ctyp) = typeCheckExpr env cond in 
+    if ctyp /= BoolType then
+        error "if condition not is not a boolean"
+    else 
+    let (thexp, _) = typeCheckExpr env th in 
+    let (elexp, _) = typeCheckExpr env el in 
+    (TAST.IfThenElse tcnd thexp elexp, env)
 
 typeCheckFunction :: Env ->  Ast.Function -> (TAST.Function, Env)
 typeCheckFunction env func = 

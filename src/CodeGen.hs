@@ -14,7 +14,7 @@ instance Ord Operand where
 
 instance Show Operand where 
     show (Lit i) =  show i
-    show (StrLit s) = show s 
+    show (StrLit s) = s 
     show (R r) = "X" ++ show r 
     show (SP i) = "[SP, " ++ "#-" ++ show i ++ "]!"
     show LR = "LR"
@@ -24,7 +24,10 @@ instance Show Operand where
     show Nop = ""
 
 
-data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret | Mul
+data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret | Mul | B (Maybe Condition) | Cmp | Debug
+
+data Condition = EQ | NE 
+    deriving (Show)
 
 instance Show Operation where 
     show Mov = "mov"
@@ -36,17 +39,26 @@ instance Show Operation where
     show (BL s) = "bl _" ++ s
     show Mul = "mul"
     show Ret = "ret"
+    show (B (Just c)) = "b" ++ show c 
+    show (B Nothing) = "b"
+    show Cmp = "cmp"
+    show Debug = "DEBUG"
+
 
 data CodeLine = CL Operation [Operand] 
 
 
 instance Show CodeLine where
+    show (CL Debug [StrLit string]) = "DEBUG " ++ string ++ replicate 10 '*' ++ "\n\t"
+    show (CL Cmp [_, a, b]) = "cmp " ++ show a ++ ", " ++ show b ++ "\n\t"
+    show (CL (B (Just c)) [label]) = "b" ++ show c ++ " " ++ show label ++ "\n"
+    show (CL (B Nothing) [label]) = "b " ++ show label ++"\n\t"
     show (CL (BL func) []) = "bl _" ++ func ++ "\n\t"
-    show (CL (Svc i) []) = "svc #0x80\n"
+    show (CL (Svc i) []) = "svc #0x80\n\t"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
     show (CL Ldr [R r, OffSet i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP, #" ++ show i ++ "]\n\t"   
     show (CL Ldr [R r, AccThenUp i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "]\n\t"   
-    show (CL Ret []) = "ret\n" 
+    show (CL Ret []) = "ret\n\t"
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
 
 printOperandList :: [Operand] -> String 
@@ -60,16 +72,16 @@ type Block = [CodeLine]
 
 
 
-data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine]}
+data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine], currentBlock :: String}
     deriving (Show)
 
 printCfg :: Cfg -> String 
 printCfg c =
-       let a = Prelude.foldl (\acc x -> acc ++ helper x)  (header ++ "\n\n") $ blocks c  
+       let a = Prelude.foldr (\x acc -> acc ++ helper x)  (header ++ "\n\n") $ blocks c  
             where 
             helper :: (String, Block) -> String 
             helper (label, block) =
-                label ++ ":\n\t" ++ Prelude.foldr (\cl acc ->  acc ++ show cl) "" block
+                "\n"++ label ++ ":\n\t" ++ Prelude.foldr (\cl acc ->  acc ++ show cl) "" block
         in 
         let epilogue = 
                 "\n.data \
@@ -97,12 +109,23 @@ addLine  cl =
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, Nop) in 
     BuildLet f
 
-addBlock :: String -> Cfg -> Cfg 
-addBlock s cfg = Cfg {blocks = (s, insns cfg): blocks cfg, insns = []}
+startBlock :: String -> BuildLet Operand
+startBlock s =
+    BuildLet (
+        \(cfg, env) ->
+            if currentBlock cfg /= "" then error "end current block before starting a new one" 
+            else
+            (cfg {currentBlock = s}, env, Nop)
+    )
 
+endBlock :: BuildLet Operand 
+endBlock = 
+    BuildLet (
+        \(cfg, env) ->  (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [], currentBlock = ""}, env, Nop)
+    )
 
 emptyCfg :: Cfg
-emptyCfg = Cfg {blocks=[], insns = []}
+emptyCfg = Cfg {blocks=[], insns = [], currentBlock = ""}
 
 
 newtype BuildLet a = BuildLet ((Cfg , Env) -> (Cfg, Env, a))
@@ -137,12 +160,19 @@ instance Monad BuildLet where
         in 
         BuildLet bl
 
-data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], poppedFromStack :: [(String, Operand)]} 
+data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], poppedFromStack :: [(String, Operand)], uid :: Int} 
     deriving (Show)
     
 emptyEnv :: Env 
-emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11,12,13,14, 0], vars = [], poppedFromStack = []}
+emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11,12,13,14, 0], vars = [], poppedFromStack = [], uid = 0}
 
+
+getUid :: BuildLet Operand 
+getUid  = 
+    BuildLet ( \(cfg, env) -> 
+        let nenv = env {uid = uid env + 1} in
+        (cfg, nenv, Lit (uid env))
+    )
 
 
 
@@ -248,6 +278,10 @@ codegenExpr (BinOp l op r _) =
             Plus -> Add 
             Minus -> Sub
             Mult -> Mul
+            Lt -> Cmp
+            Gt -> Cmp
+            Lte -> Cmp
+            Gte -> Cmp
     in
     case l of 
         (BinOp {}) ->  do
@@ -278,6 +312,8 @@ codegenExpr (FunCall fname args _) = do
 --       : Stm ~ The statement to generate code for. It is also a node in the CFG
 -- Return: BuildLet ~ State monad, in which the state is a CFG
 codegenStm :: Stm -> BuildLet Operand
+codegenStm (StmExpr expr _) = do 
+    codegenExpr expr
 codegenStm  (LetIn ident expr _) =  do
     a <- codegenExpr expr
     b <- addLine $ CL Str [a, SP 16]
@@ -296,7 +332,31 @@ codegenStm (Scope stms) =
                         acc >> a
                 ) (return (R 0)) stms 
 
-codegenStm _ = error  "not implemented yet for stm"
+
+codegenStm (IfThenElse cond th el) = do
+    r <- getUid 
+    let ifi = case r of 
+                (Lit i) -> i 
+                _ -> error "not possible"
+    let ifLabel = "_if" ++ show ifi
+    let thenLabel = "_then" ++ show ifi
+    let elseLabel = "_else" ++ show ifi
+    let endLabel = "_end" ++ show ifi
+    _ <- endBlock
+    _ <- startBlock ifLabel
+    _ <- codegenExpr cond
+    _ <- addLine $ CL (B (Just CodeGen.NE)) [StrLit elseLabel]
+    _ <- endBlock
+    _ <- startBlock thenLabel 
+    _ <- codegenExpr th 
+    _ <- addLine $ CL (B Nothing) [StrLit endLabel]
+    _ <- endBlock
+    _ <- startBlock elseLabel
+    _ <- codegenExpr el
+    _ <- addLine $ CL (B Nothing) [StrLit endLabel]
+    _ <- endBlock
+    startBlock endLabel
+
 
 getEnv :: BuildLet Operand -> Env 
 getEnv (BuildLet a) = let (_, e,_) = a (emptyCfg, emptyEnv) in e
@@ -312,6 +372,7 @@ funEpilogue =
 codegenFunc :: Function -> BuildLet Operand
 codegenFunc func = do 
     let label = if funName func /= "main" then "_" ++ funName func else "_start"
+    _ <- startBlock label 
     _ <- if funName func == "main" then
                 return Nop
             else 
@@ -327,7 +388,7 @@ codegenFunc func = do
             _ <- addLine $ CL Mov [R 16, Lit 1]
             addLine  (CL (Svc 0) [] )
         else funEpilogue
-    BuildLet (\(c, e) -> (addBlock label c, e, R 0))
+    endBlock
 
 codegenAst :: TypedAst -> String 
 codegenAst funcs = 
@@ -345,6 +406,8 @@ header = ".global _start\n.align 4\n"
 
 generatePrintFunc :: BuildLet Operand
 generatePrintFunc = do
+    _ <- endBlock
+    _ <- startBlock "_print" 
     _ <- addLine (CL Str [LR, SP 16])
     _ <- addLine (CL Mov [R 1, R 0])
     _ <- addLine $ CL Str [R 1, SP 16]
@@ -353,7 +416,7 @@ generatePrintFunc = do
     _ <- addLine (CL (Svc 0) [])
     _ <- addLine $ CL Ldr [LR, AccThenUp 16]
     _ <- addLine (CL Ret [] )
-    BuildLet (\(c, e) -> (addBlock "_print" c, e, R 0))
+    endBlock
     
 
 

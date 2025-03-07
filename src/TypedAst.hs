@@ -10,7 +10,7 @@ data Typ = IntType | BoolType | StringType
 data Lit = TLI Int | TLB Bool
     deriving (Show)
 
-data Op = Plus | Minus | Mult
+data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte
     deriving (Show)
 
 data Expr = 
@@ -24,6 +24,7 @@ data Stm =
     | Scope [Stm] 
     | Return Expr Typ
     | StmExpr Expr Typ
+    | IfThenElse Expr Expr Expr
 
 data Function = Function {funName :: String, params :: [(String, Typ)], body :: Stm, returnType :: Typ}
 
