@@ -1,5 +1,8 @@
+foo : (x : Int) -> Int 
+    return x + 1
+
 main : Int
-    if 1 > 2 then 
+    if foo(2) > 3 then 
         print (1)
     else 
         print(2)

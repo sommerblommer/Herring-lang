@@ -25,9 +25,10 @@ instance Show Operand where
 
 
 data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret | Mul | B (Maybe Condition) | Cmp | Debug
+    deriving (Eq)
 
 data Condition = EQ | NE 
-    deriving (Show)
+    deriving (Show, Eq)
 
 instance Show Operation where 
     show Mov = "mov"
@@ -283,6 +284,20 @@ codegenExpr (BinOp l op r _) =
             Lte -> Cmp
             Gte -> Cmp
     in
+    if binop == Cmp then  
+        case op of 
+        Lt -> do
+            lused <- codegenExpr l
+            rused <- codegenExpr r 
+            lat <- addLine $ CL Add [lused, lused, Lit 1]
+            addLine $ CL binop [rused, lat]
+        Gt -> do
+            lused <- codegenExpr l
+            rused <- codegenExpr r 
+            lat <- addLine $ CL Add [rused, rused, Lit 1]
+            addLine $ CL binop [lused, lat]
+        _ -> error "hah"
+    else 
     case l of 
         (BinOp {}) ->  do
             lused <- codegenExpr l
