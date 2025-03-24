@@ -11,9 +11,11 @@ data Expr =
     | IExp {ident :: String}
     | BinOp {lhs :: Expr, op :: Op, rhs :: Expr}
     | FunCall Expr [Expr] -- First expression has to be an ident
+    | Range Expr Expr
 
 data Stm = 
     LetIn String Expr 
+    | ForLoop String Expr Stm -- for $string in $iter $body
     | Return Expr
     | Scope [Stm]
     | IfThenElse Expr Expr Expr
@@ -45,9 +47,11 @@ instance Show Expr where
     show (FunCall fname args) =
         let argString = foldl (\acc e -> show e ++ " " ++ acc) "" args in
         show fname ++ "(" ++ argString ++ ")" 
+    show (Range l r) = show l ++ ".." ++ show r
 
 instance Show Stm where 
     show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
+    show (ForLoop ident iter body) = "for " ++ ident ++ " in " ++ show iter ++ " " ++ show body 
     show (Return e) = "return " ++ show e
     show (Scope stms) = foldl (\acc s -> acc ++ " " ++show s) "" stms
     show (IfThenElse cond th el) = "if " ++ show cond ++ " then " ++ show th ++ " else " ++ show el
@@ -90,7 +94,8 @@ prettyPrintStm :: Stm -> String
 prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e 
 prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
-prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr (6 + length str) [] ex
+prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
+prettyPrintStm (ForLoop ident iter body) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ helper [body]
 prettyPrintStm (IfThenElse cond th el) = 
     "if\n\9500\9472 " ++ prettyPrintExpr 2 [0] cond 
     ++ "\9500\9472then " ++ prettyPrintExpr 2 [0] th 
@@ -108,6 +113,14 @@ prettyPrintExpr :: Int -> [Int] -> Expr -> String
 prettyPrintExpr _ _ LitExp {lit= LI l} = "Literal " ++ show l ++ "\n"
 prettyPrintExpr _ _ LitExp {lit= LB l} = "Literal " ++ show l ++ "\n"
 prettyPrintExpr _ _  IExp {ident=ide} = "ident " ++ ide ++ "\n"
+prettyPrintExpr indent xs (Range l r) = 
+    let start = "Range\n" in
+    let indents = makeIndents 0 xs in 
+    let restSpaces = makeSpaces indent xs in
+    let l' = indents ++ restSpaces ++ "\9500" ++  "\9472" in
+    let r' = indents ++ restSpaces ++ "\9492" ++  "\9472" in
+    start ++ l' ++  prettyPrintExpr (indent + 1) (indent : xs) l 
+    ++ r' ++ prettyPrintExpr (indent + 2) xs r
 prettyPrintExpr indent xs  BinOp {lhs=l, op=o, rhs=r} = 
     let start = "BinOp : " ++ show o ++"\n" in
     let indents = makeIndents 0 xs in 

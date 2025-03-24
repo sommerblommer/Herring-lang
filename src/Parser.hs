@@ -195,7 +195,7 @@ closureR g p
             V var -> 
                 let tlup = g Dm.!? var in
                 case tlup of
-                Nothing -> error $ "Non-Term " ++ show var ++ " has no rules"
+                Nothing -> error $ "Non-Term " ++ show var ++ " has no rules (maybe you misspelled?)"
                 Just lup -> 
                     let fset = 
                             if length (rule p) > (pos p + 1) then
@@ -436,6 +436,14 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         -- range
+         ([V "Exp", T Dot, T Dot, V "Term"], E r:_:_:E l:rest) -> 
+            let range = E (Range l r) in
+            logStack (range:rest) 4
+         -- for-loops
+         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Stm", T LeftArrow], _:Ps body:_:E iter:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+            let floop = Ps (ForLoop ident iter body) in
+            logStack (floop:rest) 7
          -- if-then-else statement
          ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el : _ : E thn : _ : E condition : _ : rest) -> 
             let funcall = Ps (IfThenElse condition thn el) in
@@ -564,9 +572,12 @@ parseAtom text
         ":" -> T Colon
         "," -> T Comma
         "->" -> T RightArrow 
+        "<-" -> T LeftArrow
         "lt" -> T Lexer.Lt
         "lte" -> T Lexer.Lte
         "gt" -> T Lexer.Gt
         "gte" -> T Lexer.Gte
+        "for" -> T For
+        "." -> T Dot
         e -> error $ "mising data types to parse to for: " ++ e
     

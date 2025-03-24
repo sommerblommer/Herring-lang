@@ -27,6 +27,9 @@ data Token =
     | Gt 
     | Lte 
     | Gte 
+    | For 
+    | LeftArrow
+    | Dot
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
@@ -59,7 +62,7 @@ instance Monad Incrementer where
     Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
 
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n,"
+singleCharTokens = ":()=+- ;\n,."
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
@@ -90,14 +93,21 @@ findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
 findToken '*' _ = return $ pure Star
 findToken ':' _ = return $ pure Colon
-findToken '>' _ = return $ pure Gt
-findToken '<' _ = return $ pure Lt
+findToken '.' _ = return $ pure Dot
+findToken '>' (x:y:ys) 
+    | x == '=' =  return ' ' >> (return $ pure Gte)
+    | otherwise = return $ pure Gt 
+findToken '<' (x:y:ys) 
+    | x == '=' = return ' ' >> (return $ pure Lte)
+    | x == ' ' = return $ pure Lt 
+    | x == '-' = return ' ' >> (return $ pure LeftArrow)
+    | otherwise = checkIdentForReserved <$> findIdent "" '<' (x:y:ys) 
 findToken '\n' (x:xs) = return ' ' >> findToken x xs
 findToken '\n' [] = return $ pure EOF
 findToken ' ' (x:xs) = return ' ' >> findToken x xs
 findToken c xs 
-    | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs 
-    | otherwise = checkIdentForReserved <$> findIdent "" c xs 
+    | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs
+    | otherwise = checkIdentForReserved <$> findIdent "" c xs
 
 identToLit :: StreamToken Token -> StreamToken Token 
 identToLit (StreamToken (Ident, Str s))= StreamToken (Literal, I $ read s)
@@ -105,8 +115,11 @@ identToLit a = a
 
 checkIdentForReserved :: StreamToken Token -> StreamToken Token 
 checkIdentForReserved (StreamToken (Ident, Str "->")) = pure RightArrow
+checkIdentForReserved (StreamToken (Ident, Str "<-")) = pure RightArrow
 checkIdentForReserved (StreamToken (Ident, Str ">=")) = pure Gte
 checkIdentForReserved (StreamToken (Ident, Str "<=")) = pure Lte
+checkIdentForReserved (StreamToken (Ident, Str "<")) = pure Lt
+checkIdentForReserved (StreamToken (Ident, Str ">")) = pure Gt
 checkIdentForReserved (StreamToken (Ident, Str "-")) = pure Minus
 checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
 checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
@@ -114,6 +127,7 @@ checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
 checkIdentForReserved (StreamToken (Ident, Str "if")) = pure If
 checkIdentForReserved (StreamToken (Ident, Str "then")) = pure Then
 checkIdentForReserved (StreamToken (Ident, Str "else")) = pure Else
+checkIdentForReserved (StreamToken (Ident, Str "for")) = pure For
 checkIdentForReserved a = a
 
 findIdent :: String -> Char -> String -> Incrementer (StreamToken Token)

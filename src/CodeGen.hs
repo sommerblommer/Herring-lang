@@ -3,6 +3,7 @@ import TypedAst
 import Data.List (uncons, findIndex)
 import Lib (stdLib)
 
+
 type Reg = Int
 data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop | LR | AccThenUp Int | SPP
     deriving (Eq)
@@ -27,7 +28,7 @@ instance Show Operand where
 data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret | Mul | B (Maybe Condition) | Cmp | Debug
     deriving (Eq)
 
-data Condition = EQ | NE 
+data Condition = EQ | NE | LT | GE
     deriving (Show, Eq)
 
 instance Show Operation where 
@@ -241,15 +242,27 @@ getEnv2 (_, env)= env
 
 
 
-popFromStack2 :: String -> [(String, Operand)] -> Env -> BuildLet Operand
-popFromStack2 str variables env = 
-    let index = findIndex (\(var, _) -> var == str) variables in 
-    case index of 
-        Just i -> do 
-            popped <- popReg  
-            addLine $ CL Ldr [popped, OffSet (i*16)] 
-        Nothing -> error $ "The variable: " ++ str ++ " is not on the stack"
 
+
+popVar :: String -> BuildLet Operand
+popVar str = BuildLet (\bl -> 
+    let env = getEnv2 bl in
+    case Prelude.lookup str $ vars env of 
+        Just (R i) -> 
+            (fst bl, snd bl, R i)
+        Just _ -> 
+            let BuildLet a = popFromStack2 str (vars env) in 
+            a bl
+        Nothing -> error $ "variable " ++ str ++ " not in environment"
+    ) where 
+    popFromStack2 :: String -> [(String, Operand)] -> BuildLet Operand
+    popFromStack2 str variables = 
+        let index = findIndex (\(var, _) -> var == str) variables in 
+        case index of 
+            Just i -> do 
+                popped <- popReg  
+                addLine $ CL Ldr [popped, OffSet (i*16)] 
+            Nothing -> error $ "The variable: " ++ str ++ " is not on the stack"
 
 
 -- codegenExpr: constructs a CFG from a given expression
@@ -257,17 +270,7 @@ popFromStack2 str variables env =
 --       : Expr ~ The expression to generate code for. 
 -- Return: BuildLet ~ State monad, in which the state is a CFG
 codegenExpr :: Expr -> BuildLet Operand
-codegenExpr (Ident str) = 
-    BuildLet (\bl -> 
-        let env = getEnv2 bl in
-        case Prelude.lookup str $ vars env of 
-            Just (R i) -> 
-                (fst bl, snd bl, R i)
-            Just _ -> 
-                let BuildLet a = popFromStack2 str (vars env) env in 
-                a bl
-            Nothing -> error $ "variable " ++ str ++ " not in environment"
-            )
+codegenExpr (Ident str) = popVar str
 codegenExpr (Literal {tLit=TLI i}) = do
     op <- popReg  
     addLine $ CL Mov [op, Lit i]
@@ -291,11 +294,19 @@ codegenExpr (BinOp l op r _) =
             rused <- codegenExpr r 
             lat <- addLine $ CL Add [lused, lused, Lit 1]
             addLine $ CL binop [rused, lat]
+        Lte -> do 
+            lused <- codegenExpr l
+            rused <- codegenExpr r 
+            addLine $ CL binop [rused, lused]
         Gt -> do
             lused <- codegenExpr l
             rused <- codegenExpr r 
             lat <- addLine $ CL Add [rused, rused, Lit 1]
             addLine $ CL binop [lused, lat]
+        Gte -> do 
+            lused <- codegenExpr l
+            rused <- codegenExpr r 
+            addLine $ CL binop [lused, rused]
         _ -> error "hah"
     else 
     case l of 
@@ -321,6 +332,7 @@ codegenExpr (FunCall fname args _) = do
             ) (pure (R 0), 0) args
     
     addLine  $ CL (BL fn) []
+codegenExpr (Range _ _) = error "range not implemented"
 
 -- codegenStm: constructs a CFG from a given statement
 -- Params: Env ~ the environment  
@@ -360,7 +372,7 @@ codegenStm (IfThenElse cond th el) = do
     _ <- endBlock
     _ <- startBlock ifLabel
     _ <- codegenExpr cond
-    _ <- addLine $ CL (B (Just CodeGen.NE)) [StrLit elseLabel]
+    _ <- addLine $ CL (B (Just CodeGen.LT)) [StrLit elseLabel]
     _ <- endBlock
     _ <- startBlock thenLabel 
     _ <- codegenExpr th 
@@ -371,6 +383,38 @@ codegenStm (IfThenElse cond th el) = do
     _ <- addLine $ CL (B Nothing) [StrLit endLabel]
     _ <- endBlock
     startBlock endLabel
+
+codegenStm (ForLoop ident iter body _typ) = do
+    r <- getUid 
+    let ifi = case r of 
+                (Lit i) -> i 
+                _ -> error "not possible"
+    let condLabel = "_cond" ++ show ifi
+    let endLabel = "_end" ++ show ifi
+    _ <- case iter of 
+                (Range start end) -> do 
+                        stcode <- codegenExpr start 
+                        fr <- addLine $ CL Str [stcode, SP 16]
+                        _ <- insertIntoEnv ident fr
+                        _ <- endBlock
+                        _ <- startBlock condLabel
+                        a <- popVar ident
+                        endcode <- codegenExpr end 
+                        _ <- addLine $ CL Cmp [a, endcode]
+                        addLine $ CL (B (Just CodeGen.GE)) [StrLit endLabel]
+                _ -> error "should not be possible"
+
+    _ <- codegenStm body 
+    a <- popVar ident
+    added <- addLine $ CL Add [a, a, Lit 1]
+    str <- addLine $ CL Str [added, SP 16]
+    _ <- insertIntoEnv ident str
+    _ <- addLine $ CL (B Nothing) [StrLit condLabel]
+    _ <- endBlock
+    startBlock endLabel 
+
+
+    
 
 
 getEnv :: BuildLet Operand -> Env 

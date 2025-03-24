@@ -75,9 +75,23 @@ typeCheckExpr env (Ast.FunCall fvar args) =
     in
     let rType = TAST.returnType typedFvar in
     (TAST.FunCall (Ident fname) typedArgs rType, rType) 
-typeCheckExpr _ e = error $ show e ++ " not impplemented"
+
+typeCheckExpr env (Ast.Range start end) = 
+    let tstart = assertType env start TAST.IntType in
+    let tend = assertType env end TAST.IntType in
+    (TAST.Range tstart tend, TAST.IntType)
+
+assertType :: Env -> Ast.Expr -> TAST.Typ -> TAST.Expr 
+assertType env exp typ = 
+    let (texp, exptyp) = typeCheckExpr env exp in 
+    if exptyp == typ then texp else error "wrong type"
 
 typeCheckStm :: Env -> Ast.Stm -> (TAST.Stm, Env)
+typeCheckStm env (Ast.ForLoop ident iter body) = 
+    let (iterExp, titer) = typeCheckExpr env iter in
+    let newenv = insertIntoEnv ident titer env in -- created variable has to be a resulting type of the iterator  
+    let (bexp, bodyt) = typeCheckStm newenv body in
+    (TAST.ForLoop ident iterExp bexp titer, bodyt)
 typeCheckStm env (Ast.LetIn str expr) = 
     let (texpr, exprtype) = typeCheckExpr env expr in
     let newenv = insertIntoEnv str exprtype env in 

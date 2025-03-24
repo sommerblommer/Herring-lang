@@ -18,6 +18,7 @@ data Expr =
     | Ident String 
     | BinOp Expr Op Expr Typ
     | FunCall Expr [Expr] Typ
+    | Range Expr Expr
 
 data Stm = 
     LetIn String Expr Typ
@@ -25,6 +26,7 @@ data Stm =
     | Return Expr Typ
     | StmExpr Expr Typ
     | IfThenElse Expr Expr Expr
+    | ForLoop String Expr Stm Typ
 
 data Function = Function {funName :: String, params :: [(String, Typ)], body :: Stm, returnType :: Typ}
 
