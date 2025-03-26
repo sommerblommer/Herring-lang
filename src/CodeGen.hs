@@ -241,6 +241,8 @@ getEnv2 (_, env)= env
 
 
 
+idBuildlet :: BuildLet Operand 
+idBuildlet = BuildLet (\(cfg, env) -> (cfg, env, Nop))  
 
 
 
@@ -256,13 +258,14 @@ popVar str = BuildLet (\bl ->
         Nothing -> error $ "variable " ++ str ++ " not in environment"
     ) where 
     popFromStack2 :: String -> [(String, Operand)] -> BuildLet Operand
-    popFromStack2 str variables = 
-        let index = findIndex (\(var, _) -> var == str) variables in 
+    popFromStack2 str2 variables = 
+        let index = findIndex (\(var, _) -> var == str2) variables in 
         case index of 
             Just i -> do 
                 popped <- popReg  
                 addLine $ CL Ldr [popped, OffSet (i*16)] 
-            Nothing -> error $ "The variable: " ++ str ++ " is not on the stack"
+            Nothing -> error $ "The variable: " ++ str2 ++ " is not on the stack"
+
 
 
 -- codegenExpr: constructs a CFG from a given expression
@@ -332,7 +335,10 @@ codegenExpr (FunCall fname args _) = do
             ) (pure (R 0), 0) args
     
     addLine  $ CL (BL fn) []
+
 codegenExpr (Range _ _) = error "range not implemented"
+
+codegenExpr (Closure stm _) = codegenStm stm 
 
 -- codegenStm: constructs a CFG from a given statement
 -- Params: Env ~ the environment  
@@ -343,8 +349,10 @@ codegenStm (StmExpr expr _) = do
     codegenExpr expr
 codegenStm  (LetIn ident expr _) =  do
     a <- codegenExpr expr
-    b <- addLine $ CL Str [a, SP 16]
-    insertIntoEnv ident b 
+    if ident /= "_" then do
+        b <- addLine $ CL Str [a, SP 16]
+        insertIntoEnv ident b 
+        else idBuildlet
 
 codegenStm (Return expr _) = do
             a <- codegenExpr expr 
@@ -404,7 +412,7 @@ codegenStm (ForLoop ident iter body _typ) = do
                         addLine $ CL (B (Just CodeGen.GE)) [StrLit endLabel]
                 _ -> error "should not be possible"
 
-    _ <- codegenStm body 
+    _ <- codegenExpr body 
     a <- popVar ident
     added <- addLine $ CL Add [a, a, Lit 1]
     str <- addLine $ CL Str [added, SP 16]

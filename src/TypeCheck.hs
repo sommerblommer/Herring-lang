@@ -45,6 +45,8 @@ getTypeOfExpr _ Literal {tLit=l} = case l of
     (TLB _) -> BoolType
 getTypeOfExpr _ (TAST.BinOp _ _ _ t) = t
 getTypeOfExpr _ (TAST.FunCall _ _ t) = t
+getTypeOfExpr _ (TAST.Closure  _ t) = t
+getTypeOfExpr _ (TAST.Range  _ _) = IntType
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
 typeCheckExpr _ LitExp {lit = LI i} = (TAST.Literal {tLit = TLI i}, IntType)
@@ -81,6 +83,15 @@ typeCheckExpr env (Ast.Range start end) =
     let tend = assertType env end TAST.IntType in
     (TAST.Range tstart tend, TAST.IntType)
 
+typeCheckExpr env (Ast.Closure stm) = 
+    let (typedStm, _) = typeCheckStm env  stm  in
+    (TAST.Closure typedStm IntType, IntType)
+
+
+
+
+
+
 assertType :: Env -> Ast.Expr -> TAST.Typ -> TAST.Expr 
 assertType env exp typ = 
     let (texp, exptyp) = typeCheckExpr env exp in 
@@ -90,8 +101,8 @@ typeCheckStm :: Env -> Ast.Stm -> (TAST.Stm, Env)
 typeCheckStm env (Ast.ForLoop ident iter body) = 
     let (iterExp, titer) = typeCheckExpr env iter in
     let newenv = insertIntoEnv ident titer env in -- created variable has to be a resulting type of the iterator  
-    let (bexp, bodyt) = typeCheckStm newenv body in
-    (TAST.ForLoop ident iterExp bexp titer, bodyt)
+    let (bexp, bodyt) = typeCheckExpr newenv body in
+    (TAST.ForLoop ident iterExp bexp titer, env)
 typeCheckStm env (Ast.LetIn str expr) = 
     let (texpr, exprtype) = typeCheckExpr env expr in
     let newenv = insertIntoEnv str exprtype env in 

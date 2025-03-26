@@ -1,9 +1,8 @@
-fib : (x : Int) -> Int 
-    if x < 10 then print(x)
-    else fib (x + 1)
-    return 1
 main : Int
-    let _ = fib (0) in
+    for i in 0..8 -> 
+        (   let _ = print (i) in 
+            let _ = print (i*i) in
+        ) <- 
     return 1
 
 

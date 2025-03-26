@@ -12,10 +12,11 @@ data Expr =
     | BinOp {lhs :: Expr, op :: Op, rhs :: Expr}
     | FunCall Expr [Expr] -- First expression has to be an ident
     | Range Expr Expr
+    | Closure Stm 
 
 data Stm = 
     LetIn String Expr 
-    | ForLoop String Expr Stm -- for $string in $iter $body
+    | ForLoop String Expr Expr -- for $string in $iter $body
     | Return Expr
     | Scope [Stm]
     | IfThenElse Expr Expr Expr
@@ -48,6 +49,7 @@ instance Show Expr where
         let argString = foldl (\acc e -> show e ++ " " ++ acc) "" args in
         show fname ++ "(" ++ argString ++ ")" 
     show (Range l r) = show l ++ ".." ++ show r
+    show (Closure stm) = "(" ++ show stm ++ ")" 
 
 instance Show Stm where 
     show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
@@ -95,7 +97,7 @@ prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e
 prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
 prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
-prettyPrintStm (ForLoop ident iter body) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ helper [body]
+prettyPrintStm (ForLoop ident iter body) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ prettyPrintExpr 4 [0] body
 prettyPrintStm (IfThenElse cond th el) = 
     "if\n\9500\9472 " ++ prettyPrintExpr 2 [0] cond 
     ++ "\9500\9472then " ++ prettyPrintExpr 2 [0] th 
@@ -146,4 +148,7 @@ prettyPrintExpr indent xs (FunCall fname args) =
                                         ) end restArgs  in
     start ++ l ++  name ++ argString 
 
+prettyPrintExpr _ _ (Closure stm) = 
+    let start = "Closure : " ++ "\n" in 
+    start ++ helper [stm]
 

@@ -436,12 +436,16 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         -- Closure 
+         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
+            let clos = E (Closure scope) in
+            logStack (clos:rest) 3
          -- range
          ([V "Exp", T Dot, T Dot, V "Term"], E r:_:_:E l:rest) -> 
             let range = E (Range l r) in
             logStack (range:rest) 4
          -- for-loops
-         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Stm", T LeftArrow], _:Ps body:_:E iter:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Exp", T LeftArrow], _:E body:_:E iter:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
             let floop = Ps (ForLoop ident iter body) in
             logStack (floop:rest) 7
          -- if-then-else statement

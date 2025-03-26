@@ -17,13 +17,14 @@ Scope => Stm
 Stm => let ident = Exp in
 Stm => return Exp
 Stm => if Exp then Exp else Exp
-Stm => for ident in Exp -> Stm <- 
+Stm => for ident in Exp -> Exp <- 
 
 
 Exp => Exp ( Fparams )
 Exp => Exp Op Term 
 Exp => Term 
 Exp => Exp . . Term
+Exp => ( Scope )
 
 Fparams => Exp , Fparams 
 Fparams => Exp

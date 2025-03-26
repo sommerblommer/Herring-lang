@@ -62,7 +62,7 @@ instance Monad Incrementer where
     Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
 
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n,."
+singleCharTokens = ":()=+- ;\n,.*"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
