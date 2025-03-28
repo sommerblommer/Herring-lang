@@ -76,25 +76,25 @@ printParams :: [(String, String)] -> String
 printParams [] = ""
 printParams ((p, pt):xs) = "(" ++ show p ++ " : " ++ show pt ++ ")" ++ " -> " ++ printParams xs
 
-helper :: [Stm] -> String 
-helper [] = ""
-helper [x] = 
+stmHelper :: [Stm] -> String 
+stmHelper [] = ""
+stmHelper [x] = 
     let str = prettyPrintStm x in 
     let ls =  lines str in 
     let fs = "\9492\9472" ++ head ls in
     let rs = ("  "++) <$> tail ls in
     unlines (fs:rs)
-helper (x:xs) = 
+stmHelper (x:xs) = 
     let str = prettyPrintStm x in 
     let ls =  lines str in 
     let fs = "\9500\9472" ++ head ls in
     let rs = ("\9474 " ++) <$> tail ls in
-    unlines (fs:rs) ++ helper xs
+    unlines (fs:rs) ++ stmHelper xs
 
 
 prettyPrintStm :: Stm -> String 
 prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e 
-prettyPrintStm (Scope stms) ="Scope\n" ++ helper stms
+prettyPrintStm (Scope stms) ="Scope\n" ++ stmHelper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
 prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
 prettyPrintStm (ForLoop ident iter body) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ prettyPrintExpr 4 [0] body
@@ -150,5 +150,5 @@ prettyPrintExpr indent xs (FunCall fname args) =
 
 prettyPrintExpr _ _ (Closure stm) = 
     let start = "Closure : " ++ "\n" in 
-    start ++ helper [stm]
+    start ++ stmHelper [stm]
 

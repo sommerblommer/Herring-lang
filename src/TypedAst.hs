@@ -3,9 +3,17 @@ import Data.List (uncons)
 
 predefinedFunctions :: [Function]
 predefinedFunctions = [Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}]
+predefinedFunctions2 :: [Typ] 
+predefinedFunctions2 = [FunType ("print", [IntType, Void])]
 
-data Typ = IntType | BoolType | StringType
+data Typ = 
+      IntType 
+    | BoolType 
+    | StringType 
+    | Void 
+    | FunType (String, [Typ]) -- Name of function and it's type
     deriving (Eq, Show)
+
 
 data Lit = TLI Int | TLB Bool
     deriving (Show)

@@ -1,8 +1,14 @@
-main : Int
-    for i in 0..8 -> 
-        (   let _ = print (i) in 
-            let _ = print (i*i) in
-        ) <- 
+fib : (x : Int) -> (y : Int) -> Int 
+    if x < 10 then 
+        (let _ = print(x + y) in
+         let _ = fib (x + 1) in)
+    else print (404)
     return 1
+main : Int
+    let a = 1 in
+    let _ = fib (9) in
+    return 1
+
+
 
 

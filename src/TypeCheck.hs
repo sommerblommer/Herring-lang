@@ -29,12 +29,15 @@ emptEnv = Env {vars = empty, functions = []}
 insertIntoEnv :: String -> Typ -> Env -> Env 
 insertIntoEnv s t e = e {vars = DM.insert s t $ vars e}
 
-lookupFunc ::  Env -> String -> TAST.Function 
-lookupFunc env iden = case find (\a -> TAST.funName a == iden) (functions env) of 
-    Just function -> function
-    Nothing -> case find (\f -> TAST.funName f == iden) predefinedFunctions of
-                    Just f -> f
-                    Nothing -> error "function as variables not supported yet" 
+lookupFunc ::  Env -> String -> (String, [Typ]) 
+lookupFunc env iden = 
+    let lup = vars env !? iden 
+    in case lup of 
+            (Just (FunType x)) -> x 
+            Nothing -> case find (\(FunType (t, _)) -> iden == t) predefinedFunctions2 of 
+                        (Just (FunType y)) -> y 
+                        _ -> error $ "function " ++ iden ++ " not defined"
+            _ -> error $ "function " ++ iden ++ " not defined"
 
 getTypeOfExpr :: Env -> TAST.Expr -> Typ 
 getTypeOfExpr env (Ident var) = case vars env DM.!? var  of 
@@ -63,19 +66,19 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
     if ltyp == rtyp then 
         (TAST.BinOp leftExp (astOpToTASTOp operator) rightExp opType, opType)
     else 
-        error "type mismatch"
+    error "type mismatch"
 typeCheckExpr env (Ast.FunCall fvar args) = 
-    let (typedFvar, fname) = case fvar of 
-            (IExp {ident = ide} ) -> (lookupFunc env ide, ide)
+    let (fname, paramTyps) = case fvar of 
+            (IExp {ident = ide} ) -> lookupFunc env ide
             _ -> error $ show fvar ++ " not a valid function call"
     in
-    let typedArgs = Data.List.map (\(arg, (_, pType)) -> 
+    let typedArgs = Data.List.map (\(arg, pType) -> 
                 let (typeArg, typ) = typeCheckExpr env arg in
                 if pType == typ  then 
                     typeArg else error $ show fvar ++ " is called with wrong types"
-            ) $ zip args $ TAST.params typedFvar
+            ) $ zip args paramTyps
     in
-    let rType = TAST.returnType typedFvar in
+    let rType = last paramTyps in
     (TAST.FunCall (Ident fname) typedArgs rType, rType) 
 
 typeCheckExpr env (Ast.Range start end) = 
@@ -145,11 +148,23 @@ typeCheckFunction env func =
                                     (b, "Bool") -> return (b, BoolType)
                                     (_, unknown) -> error $ "Type: " ++ unknown ++ " is not recognised"
 
+functionHeaders :: Env -> Ast.Function -> Env 
+functionHeaders env func =  
+    let pms = FunType (Ast.funName func, helper (Ast.params func ++ [("", Ast.returnType func)])) in
+    insertIntoEnv (Ast.funName func) pms env
+    where 
+        helper :: [(String, String)] -> [Typ]
+        helper [] = [Void] 
+        helper ((_, "Int"):xs) = IntType : helper xs
+        helper ((_, "Bool"):xs) = BoolType : helper xs 
+        helper unknown = error $ "Type: " ++ show unknown ++ " is not recognised"
+
 
 typeCheckAst :: Ast.Ast -> TypedAst
 typeCheckAst funs =
     reverse . fst $ Prelude.foldl (\(acc, env) x -> 
-                                    let (stm, newenv) = typeCheckFunction env x in
+                                    let fenv = functionHeaders env x in 
+                                    let (stm, newenv) = typeCheckFunction fenv x in
                                     (stm : acc, newenv)
                                     ) ([], emptEnv) funs
 
