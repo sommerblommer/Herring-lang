@@ -37,6 +37,7 @@ Op => lt
 Op => lte 
 Op => gt 
 Op => gte
+Op => eq eq
 
 Term => ( Exp ) 
 Term => literal 

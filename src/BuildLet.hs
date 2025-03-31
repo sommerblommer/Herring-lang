@@ -5,7 +5,7 @@ header :: String
 header = ".global _start\n.align 4\n"
 type Reg = Int
 
-data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine], currentBlock :: String}
+data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine], stores :: [CodeLine], currentBlock :: String}
     deriving (Show)
 
 newtype BuildLet a = BuildLet ((Cfg , Env) -> (Cfg, Env, a))
@@ -63,10 +63,23 @@ instance Show Operand where
     show Nop = ""
 
 
-data Operation = Mov | Svc Int | Ldr | Add | Str | Sub | BL String | Ret | Mul | B (Maybe Condition) | Cmp | Debug
+data Operation = Mov 
+    | Svc Int 
+    | Ldr 
+    | Add 
+    | Str 
+    | Sub 
+    | BL String 
+    | Ret 
+    | Mul 
+    | B (Maybe Condition) 
+    | Cmp 
+    | Debug 
+    | Tst 
+    | LdrThenMove
     deriving (Eq)
 
-data Condition = EQ | NE | LT | GE
+data Condition = EQ | NE | LT | GE | LE | GT
     deriving (Show, Eq)
 
 instance Show Operation where 
@@ -83,6 +96,8 @@ instance Show Operation where
     show (B Nothing) = "b"
     show Cmp = "cmp"
     show Debug = "DEBUG"
+    show Tst = "tst"
+    show LdrThenMove = "ldr"
 
 
 data CodeLine = CL Operation [Operand] 
@@ -97,6 +112,7 @@ instance Show CodeLine where
     show (CL (Svc i) []) = "svc #0x80\n\t"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
     show (CL Ldr [R r, OffSet i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP, #" ++ show i ++ "]\n\t"   
+    show (CL LdrThenMove [to, from,  s]) = show LdrThenMove ++ " " ++ show to ++ ", " ++ "[" ++ show from ++ "], " ++ show s ++ "\n\t"   
     show (CL Ldr [R r, AccThenUp i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "]\n\t"   
     show (CL Ret []) = "ret\n\t"
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
@@ -131,7 +147,10 @@ addLine  cl@(CL (BL _) []) =
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env,R 0) in 
     BuildLet f
 addLine  cl@(CL Str (_:op:_)) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
+    let f (cfg, env) = (cfg {stores = cl : stores cfg }, env, op) in 
+    BuildLet f
+addLine  cl@(CL Str _) = 
+    let f (cfg, env) = (cfg {stores = cl : stores cfg }, env, Nop) in 
     BuildLet f
 addLine  cl@(CL _ (op:_)) = 
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
@@ -139,6 +158,10 @@ addLine  cl@(CL _ (op:_)) =
 addLine  cl =
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, Nop) in 
     BuildLet f
+
+
+getEnv :: BuildLet Operand -> BuildLet Env 
+getEnv (BuildLet o) = BuildLet (\bl -> let (cfg, env, _) = o bl in (cfg, env, env))
 
 startBlock :: String -> BuildLet Operand
 startBlock s =
@@ -152,19 +175,25 @@ startBlock s =
 endBlock :: BuildLet Operand 
 endBlock = 
     BuildLet (
-        \(cfg, env) ->  (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [], currentBlock = ""}, env, Nop)
+        \(cfg, env) ->
+        let st = stores cfg in
+        (Cfg {blocks = (currentBlock cfg, insns cfg ++ st): blocks cfg, insns = [], stores = [], currentBlock = ""}, env, Nop)
     )
 
 emptyCfg :: Cfg
-emptyCfg = Cfg {blocks=[], insns = [], currentBlock = ""}
+emptyCfg = Cfg {blocks=[], insns = [], stores = [], currentBlock = ""}
 
 
 
 emptyEnv :: Env 
-emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11,12,13,14, 0], vars = [], poppedFromStack = [], uid = 0}
+emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11, 0], vars = [], poppedFromStack = [], uid = 0}
 
 
 overWriteEnv :: Env -> BuildLet Operand 
-overWriteEnv newEnv = BuildLet (\(cfg , _) -> (cfg, newEnv, Nop))
+overWriteEnv newEnv = 
+    BuildLet (\(cfg, oldEnv) ->
+        let newEnv' = newEnv {uid = uid oldEnv + uid newEnv} in
+        (cfg, newEnv', Nop)
+    )
 
 

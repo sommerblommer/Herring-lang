@@ -12,6 +12,7 @@ typeOfFunction Ast.Lt = BoolType
 typeOfFunction Ast.Gt = BoolType 
 typeOfFunction Ast.Lte = BoolType
 typeOfFunction Ast.Gte = BoolType 
+typeOfFunction Ast.Eq = BoolType 
 
 astOpToTASTOp :: Ast.Op -> TAST.Op
 astOpToTASTOp Ast.Plus = TAST.Plus 
@@ -21,6 +22,7 @@ astOpToTASTOp Ast.Lt = TAST.Lt
 astOpToTASTOp Ast.Gt = TAST.Gt 
 astOpToTASTOp Ast.Lte = TAST.Lte
 astOpToTASTOp Ast.Gte = TAST.Gte 
+astOpToTASTOp Ast.Eq = TAST.Eq 
 
 data Env = Env {vars :: Map String Typ, functions :: [TAST.Function]}
 emptEnv :: Env 
@@ -66,7 +68,7 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
     if ltyp == rtyp then 
         (TAST.BinOp leftExp (astOpToTASTOp operator) rightExp opType, opType)
     else 
-    error "type mismatch"
+    error $ "type mismatch\nleft side: " ++ show ltyp ++ "\nright side: " ++ show rtyp 
 typeCheckExpr env (Ast.FunCall fvar args) = 
     let (fname, paramTyps) = case fvar of 
             (IExp {ident = ide} ) -> lookupFunc env ide
@@ -75,7 +77,7 @@ typeCheckExpr env (Ast.FunCall fvar args) =
     let typedArgs = Data.List.map (\(arg, pType) -> 
                 let (typeArg, typ) = typeCheckExpr env arg in
                 if pType == typ  then 
-                    typeArg else error $ show fvar ++ " is called with wrong types"
+                    typeArg else error $ show fvar ++ " is called with wrong types\nExpected type: " ++ show paramTyps ++ "\nActual Type: " ++ show typ 
             ) $ zip args paramTyps
     in
     let rType = last paramTyps in
@@ -150,21 +152,24 @@ typeCheckFunction env func =
 
 functionHeaders :: Env -> Ast.Function -> Env 
 functionHeaders env func =  
-    let pms = FunType (Ast.funName func, helper (Ast.params func ++ [("", Ast.returnType func)])) in
+    let rtyp = helper [("", Ast.returnType func)] in
+    let argTyps = helper $ Ast.params func in
+    let pms = FunType (Ast.funName func, argTyps ++ rtyp) in
     insertIntoEnv (Ast.funName func) pms env
     where 
         helper :: [(String, String)] -> [Typ]
-        helper [] = [Void] 
+        helper [] = []
         helper ((_, "Int"):xs) = IntType : helper xs
         helper ((_, "Bool"):xs) = BoolType : helper xs 
-        helper unknown = error $ "Type: " ++ show unknown ++ " is not recognised"
+        helper unknown = error $ "Type: " ++ show unknown ++ " is not recognised in fh"
 
 
 typeCheckAst :: Ast.Ast -> TypedAst
 typeCheckAst funs =
-    reverse . fst $ Prelude.foldl (\(acc, env) x -> 
+    let initenv = Prelude.foldl functionHeaders emptEnv funs
+    in reverse . fst $ Prelude.foldl (\(acc, env) x -> 
                                     let fenv = functionHeaders env x in 
                                     let (stm, newenv) = typeCheckFunction fenv x in
                                     (stm : acc, newenv)
-                                    ) ([], emptEnv) funs
+                                    ) ([], initenv) funs
 

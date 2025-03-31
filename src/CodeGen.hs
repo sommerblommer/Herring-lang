@@ -129,28 +129,25 @@ codegenExpr (BinOp l op r _) =
             Gt -> Cmp
             Lte -> Cmp
             Gte -> Cmp
+            Eq -> Tst
     in
-    if binop == Cmp then  
+    if binop == Cmp || binop == Tst  then do
+        lused <- codegenExpr l
+        rused <- codegenExpr r 
         case op of 
-        Lt -> do
-            lused <- codegenExpr l
-            rused <- codegenExpr r 
-            lat <- addLine $ CL Add [lused, lused, Lit 1]
-            addLine $ CL binop [rused, lat]
-        Lte -> do 
-            lused <- codegenExpr l
-            rused <- codegenExpr r 
-            addLine $ CL binop [rused, lused]
-        Gt -> do
-            lused <- codegenExpr l
-            rused <- codegenExpr r 
-            lat <- addLine $ CL Add [rused, rused, Lit 1]
-            addLine $ CL binop [lused, lat]
-        Gte -> do 
-            lused <- codegenExpr l
-            rused <- codegenExpr r 
-            addLine $ CL binop [lused, rused]
-        _ -> error "hah"
+            Lt -> do
+                lat <- addLine $ CL Add [lused, lused, Lit 1]
+                addLine $ CL binop [rused, lat]
+            Lte -> do 
+                addLine $ CL binop [rused, lused]
+            Gt -> do
+                lat <- addLine $ CL Add [rused, rused, Lit 1]
+                addLine $ CL binop [lused, lat]
+            Gte -> do 
+                addLine $ CL binop [lused, rused]
+            Eq -> do 
+                addLine $ CL binop [lused, rused]
+            a -> error $ "hah " ++ show a
     else 
     case l of 
         (BinOp {}) ->  do
@@ -191,6 +188,7 @@ codegenStm  (LetIn ident expr _) =  do
     a <- codegenExpr expr
     if ident /= "_" then do
         b <- addLine $ CL Str [a, SP 16]
+        _ <- addLine $ CL Add [R 12, R 12, Lit 1]
         insertIntoEnv ident b 
         else idBuildlet
 
@@ -210,6 +208,7 @@ codegenStm (Scope stms) =
 
 codegenStm (IfThenElse cond th el) = do
     r <- getUid 
+    env <- getEnv idBuildlet
     let ifi = case r of 
                 (Lit i) -> i 
                 _ -> error "not possible"
@@ -227,13 +226,15 @@ codegenStm (IfThenElse cond th el) = do
     _ <- addLine $ CL (B Nothing) [StrLit endLabel]
     _ <- endBlock
     _ <- startBlock elseLabel
+    _ <- overWriteEnv env
     _ <- codegenExpr el
     _ <- addLine $ CL (B Nothing) [StrLit endLabel]
     _ <- endBlock
+    _ <- overWriteEnv env
     startBlock endLabel
 
 codegenStm (ForLoop ident iter body _typ) = do
-    let env = getEnv idBuildlet -- save the environment before the loop 
+    env <- getEnv idBuildlet  -- save the environment before the loop 
     r <- getUid 
     let ifi = case r of 
                 (Lit i) -> i 
@@ -244,6 +245,7 @@ codegenStm (ForLoop ident iter body _typ) = do
                 (Range start end) -> do 
                         stcode <- codegenExpr start 
                         fr <- addLine $ CL Str [stcode, SP 16]
+                        _ <- addLine $ CL Add [R 12, R 12, Lit 1]
                         _ <- insertIntoEnv ident fr
                         _ <- endBlock
                         _ <- startBlock condLabel
@@ -257,6 +259,7 @@ codegenStm (ForLoop ident iter body _typ) = do
     a <- popVar ident
     added <- addLine $ CL Add [a, a, Lit 1]
     str <- addLine $ CL Str [added, SP 16]
+    _ <- addLine $ CL Add [R 12, R 12, Lit 1]
     _ <- insertIntoEnv ident str
     _ <- addLine $ CL (B Nothing) [StrLit condLabel]
     _ <- endBlock
@@ -266,14 +269,13 @@ codegenStm (ForLoop ident iter body _typ) = do
     
 
 
-getEnv :: BuildLet Operand -> Env 
-getEnv (BuildLet a) = let (_, e,_) = a (emptyCfg, emptyEnv) in e
 
 funEpilogue :: BuildLet Operand
 funEpilogue = 
     BuildLet (\(cfg, env) -> 
-        let a = addLine $ CL Ldr [LR, AccThenUp (16 * (1 + length (getStackVars env)))] in
-        let BuildLet b = a >> addLine (CL Ret [] ) in
+        let a = addLine $ CL LdrThenMove [LR, SPP, R 12] in
+        let c = addLine $ CL LdrThenMove [LR, SPP, Lit 16] in
+        let BuildLet b = a >> c >> addLine (CL Ret [] ) in
         b (cfg, env)
     )
 
@@ -282,19 +284,20 @@ codegenFunc func = do
     let label = if funName func /= "main" then "_" ++ funName func else "_start"
     _ <- overWriteEnv emptyEnv
     _ <- startBlock label 
-    _ <- if funName func == "main" then
-                return Nop
-            else 
-                addLine $ CL Str [LR, SP 16]
 
     _ <- fst . Prelude.foldl (\(acc, iter) (str, _) -> ( do
                                                 _ <- acc
                                                 a <- addLine $ CL Str [R iter, SP 16]
+                                                _ <- addLine $ CL Add [R 12, R 12, Lit 1]
                                                 _ <-  insertIntoEnv str a
                                                 popSpecReg iter , iter + 1)
                                         ) (return Nop, 0) $ params func
 
     _ <- codegenStm $ body func 
+    _ <- if funName func == "main" then
+                return Nop
+            else 
+                addLine $ CL Str [LR, SP 16] -- Prepend the store operation
     _ <- if funName func == "main" then do 
             _ <- addLine $ CL Mov [R 16, Lit 1]
             addLine  (CL (Svc 0) [] )

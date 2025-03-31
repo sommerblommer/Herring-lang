@@ -1,12 +1,16 @@
-fib : (x : Int) -> (y : Int) -> Int 
-    if x < 10 then 
-        (let _ = print(x + y) in
-         let _ = fib (x + 1) in)
-    else print (404)
-    return 1
+fibonaggi : (x : Int) -> Int 
+    if x <= 1  
+        then (return x)
+        else ( 
+            let a = fibonaggi (x - 1) in
+            let b = (fibonaggi(x  - 2)) in 
+            let _ = print (a + b) in
+        ) 
+    return x
+
 main : Int
-    let a = 1 in
-    let _ = fib (9) in
+    let x = fibonaggi (10) in
+    let _ = print (x) in
     return 1
 
 

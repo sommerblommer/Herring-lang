@@ -1,5 +1,6 @@
 module TypedAst where 
 import Data.List (uncons) 
+import GHC.RTS.Flags (ProfFlags(heapProfileInterval))
 
 predefinedFunctions :: [Function]
 predefinedFunctions = [Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}]
@@ -12,13 +13,27 @@ data Typ =
     | StringType 
     | Void 
     | FunType (String, [Typ]) -- Name of function and it's type
-    deriving (Eq, Show)
+    deriving (Eq)
+
+instance Show Typ where 
+    show IntType = "Int"
+    show BoolType = "Bool"
+    show StringType = "String"
+    show Void = "Void"
+    show (FunType (name, typs)) = 
+        name ++ helper typs 
+        where 
+        helper :: [Typ] -> String 
+        helper [] = ""
+        helper [x] = show x
+        helper (x:xs) = show x ++ "->" ++ helper xs
+
 
 
 data Lit = TLI Int | TLB Bool
     deriving (Show)
 
-data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte
+data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte | Eq
     deriving (Show)
 
 data Expr = 

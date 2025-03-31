@@ -436,6 +436,9 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         -- Double Equles 
+         ([T Equal, T Equal], _:_:rest) -> 
+            logStack (O Eq:rest) 2
          -- Closure 
          ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
             let clos = E (Closure scope) in
@@ -524,6 +527,8 @@ ruleFuncs input stack =
             logStack (O Ast.Gt:rest) 1
          ([T Lexer.Gte] ,Pt _:rest) ->   
             logStack (O Ast.Gte:rest) 1
+         ([T Lexer.Gte] ,Pt _:rest) ->   
+            logStack (O Ast.Eq:rest) 1
          ([T Lexer.Ident] ,Pt ide:rest) ->  case ide of 
             StreamToken (_, Str str) -> 
                 logStack (E IExp {ident=str}:rest) 1
@@ -581,6 +586,7 @@ parseAtom text
         "lte" -> T Lexer.Lte
         "gt" -> T Lexer.Gt
         "gte" -> T Lexer.Gte
+        "eq" -> T Lexer.Equal
         "for" -> T For
         "." -> T Dot
         e -> error $ "mising data types to parse to for: " ++ e
