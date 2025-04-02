@@ -258,13 +258,18 @@ codegenStm (ForLoop ident iter body _typ) = do
     _ <- codegenExpr body 
     a <- popVar ident
     added <- addLine $ CL Add [a, a, Lit 1]
-    str <- addLine $ CL Str [added, SP 16]
-    _ <- addLine $ CL Add [R 12, R 12, Lit 1]
-    _ <- insertIntoEnv ident str
+    _ <- storeOnStack ident added
     _ <- addLine $ CL (B Nothing) [StrLit condLabel]
     _ <- endBlock
     _ <- startBlock endLabel 
     overWriteEnv env -- overwrite the env from the loop, as to exit the scope 
+
+
+storeOnStack :: String -> Operand -> BuildLet Operand
+storeOnStack ident op = do
+        env <- getEnv idBuildlet
+        str <- addLine $ CL Str [op, OffSet (16 * stack env)] 
+        insertIntoEnv ident str
 
     
 
@@ -273,7 +278,7 @@ codegenStm (ForLoop ident iter body _typ) = do
 funEpilogue :: BuildLet Operand
 funEpilogue = 
     BuildLet (\(cfg, env) -> 
-        let a = addLine $ CL LdrThenMove [LR, SPP, R 12] in
+        let a = addLine $ CL LdrThenMove [LR, SPP, Lit $ 16 * length (getStackVars env)] in
         let c = addLine $ CL LdrThenMove [LR, SPP, Lit 16] in
         let BuildLet b = a >> c >> addLine (CL Ret [] ) in
         b (cfg, env)
@@ -284,32 +289,39 @@ codegenFunc func = do
     let label = if funName func /= "main" then "_" ++ funName func else "_start"
     _ <- overWriteEnv emptyEnv
     _ <- startBlock label 
-
-    _ <- fst . Prelude.foldl (\(acc, iter) (str, _) -> ( do
-                                                _ <- acc
-                                                a <- addLine $ CL Str [R iter, SP 16]
-                                                _ <- addLine $ CL Add [R 12, R 12, Lit 1]
-                                                _ <-  insertIntoEnv str a
-                                                popSpecReg iter , iter + 1)
-                                        ) (return Nop, 0) $ params func
-
-    _ <- codegenStm $ body func 
     _ <- if funName func == "main" then
                 return Nop
             else 
                 addLine $ CL Str [LR, SP 16] -- Prepend the store operation
+
+    _ <- fst . Prelude.foldl (\(acc, iter) (str, _) -> ( do
+                                                _ <- acc
+                                                a <- addLine $ CL Str [R iter, SP 16]
+                                                _ <-  insertIntoEnv str a
+                                                popSpecReg iter , iter + 1)
+                                        ) (return Nop, 0) $ params func
+
+
+    _ <- codegenStm $ body func 
+    bodyEnv <- getEnv idBuildlet
+    -- Make make space on the stack for each element to be stored later
+    _ <- Prelude.foldl (\acc _ -> ( do
+                                    _ <- acc
+                                    addLine $ CL Str [R 0, SP 16]
+                                )) (return Nop) $ getStackVars bodyEnv
     _ <- if funName func == "main" then do 
             _ <- addLine $ CL Mov [R 16, Lit 1]
             addLine  (CL (Svc 0) [] )
         else funEpilogue
     endBlock
 
+
 codegenAst :: TypedAst -> String 
-codegenAst funcs = 
+codegenAst fs = 
     let BuildLet cfg = Prelude.foldl (\acc stm -> 
                 let buildlet = codegenFunc stm in
                 acc >> buildlet
-            ) (return Nop) funcs in
+            ) (return Nop) fs in
     let (cfg', _, _) = cfg (emptyCfg, emptyEnv) in
     printCfg cfg'
     

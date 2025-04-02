@@ -43,8 +43,11 @@ instance Monad BuildLet where
 data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], poppedFromStack :: [(String, Operand)], uid :: Int} 
     deriving (Show)
 
-data Operand = Lit Int | StrLit String | R Reg | SP Int | OffSet Int | Nop | LR | AccThenUp Int | SPP
+data Operand = Lit Int | StrLit String | R Reg | SP Int | Nop | LR | AccThenUp Int | SPP
     deriving (Eq)
+
+
+data MemOp = OffSet [Operand] | ReadThenMove [Operand] | MoveThenRead [Operand]
 instance Ord Operand where 
     (<=) (SP i) (SP j) = i <= j
     (<=) (SP _) _ = False
@@ -57,7 +60,6 @@ instance Show Operand where
     show (R r) = "X" ++ show r 
     show (SP i) = "[SP, " ++ "#-" ++ show i ++ "]!"
     show LR = "LR"
-    show (OffSet i) = "[SP, " ++ show i ++ "]"
     show (AccThenUp i) = "[SP], " ++ show i
     show SPP = "SP"
     show Nop = ""
@@ -100,7 +102,7 @@ instance Show Operation where
     show LdrThenMove = "ldr"
 
 
-data CodeLine = CL Operation [Operand] 
+data CodeLine = CL Operation [Operand] | CLM Operation MemOp
 
 
 instance Show CodeLine where
@@ -111,11 +113,11 @@ instance Show CodeLine where
     show (CL (BL func) []) = "bl _" ++ func ++ "\n\t"
     show (CL (Svc i) []) = "svc #0x80\n\t"
     show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
-    show (CL Ldr [R r, OffSet i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP, #" ++ show i ++ "]\n\t"   
     show (CL LdrThenMove [to, from,  s]) = show LdrThenMove ++ " " ++ show to ++ ", " ++ "[" ++ show from ++ "], " ++ show s ++ "\n\t"   
     show (CL Ldr [R r, AccThenUp i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "]\n\t"   
     show (CL Ret []) = "ret\n\t"
     show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
+    show (CLM op mo) = show op ++ " " ++ show mo
 
 printOperandList :: [Operand] -> String 
 printOperandList [] = ""
@@ -147,10 +149,10 @@ addLine  cl@(CL (BL _) []) =
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env,R 0) in 
     BuildLet f
 addLine  cl@(CL Str (_:op:_)) = 
-    let f (cfg, env) = (cfg {stores = cl : stores cfg }, env, op) in 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg }, env, op) in 
     BuildLet f
 addLine  cl@(CL Str _) = 
-    let f (cfg, env) = (cfg {stores = cl : stores cfg }, env, Nop) in 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg }, env, Nop) in 
     BuildLet f
 addLine  cl@(CL _ (op:_)) = 
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
@@ -176,8 +178,7 @@ endBlock :: BuildLet Operand
 endBlock = 
     BuildLet (
         \(cfg, env) ->
-        let st = stores cfg in
-        (Cfg {blocks = (currentBlock cfg, insns cfg ++ st): blocks cfg, insns = [], stores = [], currentBlock = ""}, env, Nop)
+        (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [], stores = [], currentBlock = ""}, env, Nop)
     )
 
 emptyCfg :: Cfg
