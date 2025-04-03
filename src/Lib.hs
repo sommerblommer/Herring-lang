@@ -3,7 +3,7 @@ module Lib
     ) where
 
 stdLib :: String
-stdLib = "_print: \
+stdLib = "\n_print: \
           \ \n\tstr LR, [SP, -16]!\
           \ \n\tmov X1, X0 \
           \ \n\tadrp X0, num@PAGE \ 

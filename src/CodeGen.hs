@@ -1,7 +1,7 @@
 module CodeGen where 
 import TypedAst
 import Data.List (uncons, findIndex)
-import BuildLet 
+import BuildLet  
 
    -- should be correct when there are multiple blocks
     -- header ++ Prelude.foldr (\(label, block) acc -> label ++ "\n\t" ++ Prelude.foldl (\acc x -> acc ++show x) "" block ++ acc) "" (blocks c)
@@ -42,6 +42,12 @@ popReg =
     in 
     BuildLet f
 
+addDeferedStore :: String -> Operand -> BuildLet Operand 
+addDeferedStore s (Defer op) = 
+    BuildLet (\(cfg, env) -> 
+        (cfg, env {vars = (s , Defer op) : vars env, deferedStores = (s, Defer op) : deferedStores env}, Defer op)
+    )
+addDeferedStore _ _ = idBuildlet
 
 insertIntoEnv :: String -> Operand -> BuildLet Operand 
 insertIntoEnv s op = 
@@ -49,7 +55,7 @@ insertIntoEnv s op =
             case op of 
                 SP _ ->  
                     let maxs = stack env in 
-                    (cfg, env {vars = (s , SP (maxs + 16)) : vars env}, op)
+                    (cfg, env {stack = stack env + 1, vars = (s , SP (maxs + 16)) : vars env}, op)
                 _ ->  (cfg, env {vars = (s, op) : vars env}, op)
     in BuildLet f
 
@@ -73,6 +79,7 @@ getStackVars = helper . vars  where
     helper ((s, SP i):rest) = (s, SP i): helper rest 
     helper (_:rest) = helper rest
     helper [] = []
+
 getOp :: BuildLet Operand -> Operand 
 getOp (BuildLet a) = let (_,_, op) = a (emptyCfg, emptyEnv) in op
 
@@ -85,6 +92,17 @@ idBuildlet :: BuildLet Operand
 idBuildlet = BuildLet (\(cfg, env) -> (cfg, env, Nop))  
 
 
+storeToVar :: Operand -> String -> BuildLet Operand 
+storeToVar op ident = do 
+    env <- getEnv idBuildlet 
+    case Prelude.lookup ident $ vars env of 
+        Just (R _) -> error "variable not on stack"
+        Just _ -> 
+                let index = findIndex (\(var, _) -> var == ident) $ vars env in
+                case index of 
+                    Just i -> addLine $ MoffSet Str [op, SPP, Lit i]
+                    _ -> error "variable not found"
+        _ -> addLine $ MoffSet Str [op, SPP, Defer ident]
 
 popVar :: String -> BuildLet Operand
 popVar str = BuildLet (\bl -> 
@@ -103,7 +121,7 @@ popVar str = BuildLet (\bl ->
         case index of 
             Just i -> do 
                 popped <- popReg  
-                addLine $ CL Ldr [popped, OffSet (i*16)] 
+                addLine $ MoffSet Ldr [popped, SPP, Lit (i*16)] 
             Nothing -> error $ "The variable: " ++ str2 ++ " is not on the stack"
 
 
@@ -187,15 +205,14 @@ codegenStm (StmExpr expr _) = do
 codegenStm  (LetIn ident expr _) =  do
     a <- codegenExpr expr
     if ident /= "_" then do
-        b <- addLine $ CL Str [a, SP 16]
-        _ <- addLine $ CL Add [R 12, R 12, Lit 1]
-        insertIntoEnv ident b 
+        _ <- addLine $ MoffSet Str [a, SPP, Defer ident]
+        addDeferedStore ident $ Defer ident 
         else idBuildlet
 
 codegenStm (Return expr _) = do
             a <- codegenExpr expr 
             case a of 
-                    (SP i) -> addLine $ CL Ldr [R 0, SP i]
+                    (SP i) -> addLine $ MoffSet Ldr [R 0, SP i]
                     _ -> addLine  $ CL Mov [R 0, a] 
 
 codegenStm (Scope stms) = 
@@ -244,9 +261,9 @@ codegenStm (ForLoop ident iter body _typ) = do
     _ <- case iter of 
                 (Range start end) -> do 
                         stcode <- codegenExpr start 
-                        fr <- addLine $ CL Str [stcode, SP 16]
-                        _ <- addLine $ CL Add [R 12, R 12, Lit 1]
+                        fr <- addLine $ MoffSet Str [stcode, SPP, Lit 16]
                         _ <- insertIntoEnv ident fr
+                        _ <- addLine $ CL Add [R 12, R 12, Lit 1]
                         _ <- endBlock
                         _ <- startBlock condLabel
                         a <- popVar ident
@@ -268,7 +285,7 @@ codegenStm (ForLoop ident iter body _typ) = do
 storeOnStack :: String -> Operand -> BuildLet Operand
 storeOnStack ident op = do
         env <- getEnv idBuildlet
-        str <- addLine $ CL Str [op, OffSet (16 * stack env)] 
+        str <- addLine $ MoffSet Str [op, SPP, Lit (16 * stack env)] 
         insertIntoEnv ident str
 
     
@@ -278,8 +295,8 @@ storeOnStack ident op = do
 funEpilogue :: BuildLet Operand
 funEpilogue = 
     BuildLet (\(cfg, env) -> 
-        let a = addLine $ CL LdrThenMove [LR, SPP, Lit $ 16 * length (getStackVars env)] in
-        let c = addLine $ CL LdrThenMove [LR, SPP, Lit 16] in
+        let a = addLine $ MopThenMove Ldr [LR, SPP, Lit $ 16 * (length (deferedStores env) + stack env)] in
+        let c = addLine $ MopThenMove Ldr [LR, SPP, Lit 16] in
         let BuildLet b = a >> c >> addLine (CL Ret [] ) in
         b (cfg, env)
     )
@@ -292,11 +309,11 @@ codegenFunc func = do
     _ <- if funName func == "main" then
                 return Nop
             else 
-                addLine $ CL Str [LR, SP 16] -- Prepend the store operation
+                addLine $ MovePThenMop Str [LR, SPP, Lit 16] -- Prepend the store operation
 
     _ <- fst . Prelude.foldl (\(acc, iter) (str, _) -> ( do
                                                 _ <- acc
-                                                a <- addLine $ CL Str [R iter, SP 16]
+                                                a <- addLine $ MovePThenMop Str [R iter, SPP, Lit 16]
                                                 _ <-  insertIntoEnv str a
                                                 popSpecReg iter , iter + 1)
                                         ) (return Nop, 0) $ params func
@@ -305,15 +322,28 @@ codegenFunc func = do
     _ <- codegenStm $ body func 
     bodyEnv <- getEnv idBuildlet
     -- Make make space on the stack for each element to be stored later
-    _ <- Prelude.foldl (\acc _ -> ( do
-                                    _ <- acc
-                                    addLine $ CL Str [R 0, SP 16]
-                                )) (return Nop) $ getStackVars bodyEnv
+    _ <- handleDefered bodyEnv 
     _ <- if funName func == "main" then do 
             _ <- addLine $ CL Mov [R 16, Lit 1]
             addLine  (CL (Svc 0) [] )
         else funEpilogue
     endBlock
+
+handleDefered :: Env -> BuildLet Operand 
+handleDefered env = 
+    let BuildLet def =  Prelude.foldl (\acc _ -> ( do
+                                    _ <- acc
+                                    addLine $ MovePThenMop Str [RZR, SPP, Lit 16]
+                                )) (return Nop) $ deferedStores env
+    in
+    let (c, _, _ ) = def (emptyCfg, emptyEnv) in
+    let stores = insns c in
+    BuildLet (\(cfg, benv) -> 
+        let (s, b) = last $ blocks cfg in
+        let newb = (s, init stores ++ b) in
+        let newCfg = cfg {blocks = init (blocks cfg) ++ [newb]} in
+        (newCfg, benv, Nop)
+    )
 
 
 codegenAst :: TypedAst -> String 
@@ -322,8 +352,8 @@ codegenAst fs =
                 let buildlet = codegenFunc stm in
                 acc >> buildlet
             ) (return Nop) fs in
-    let (cfg', _, _) = cfg (emptyCfg, emptyEnv) in
-    printCfg cfg'
+    let (cfg', lenv, _) = cfg (emptyCfg, emptyEnv) in
+    printCfg $ fixCfg lenv cfg'
     
 
 
@@ -332,13 +362,13 @@ generatePrintFunc :: BuildLet Operand
 generatePrintFunc = do
     _ <- endBlock
     _ <- startBlock "_print" 
-    _ <- addLine (CL Str [LR, SP 16])
+    _ <- addLine (MovePThenMop Str [LR, SPP, Lit 16])
     _ <- addLine (CL Mov [R 1, R 0])
-    _ <- addLine $ CL Str [R 1, SP 16]
+    _ <- addLine $ MovePThenMop Str [R 1, SPP, Lit 16]
     _ <- addLine $ CL (BL "_printf") []
     _ <- addLine $ CL Add [SPP, SPP, Lit 32]
     _ <- addLine (CL (Svc 0) [])
-    _ <- addLine $ CL Ldr [LR, AccThenUp 16]
+    _ <- addLine $ MopThenMove Ldr [LR, AccThenUp 16]
     _ <- addLine (CL Ret [] )
     endBlock
     

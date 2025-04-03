@@ -1,11 +1,12 @@
 module BuildLet where 
 import Lib (stdLib)
+import Data.List (findIndex)
 
 header :: String 
 header = ".global _start\n.align 4\n"
 type Reg = Int
 
-data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine], stores :: [CodeLine], currentBlock :: String}
+data Cfg = Cfg {blocks::[(String, Block)], insns :: [CodeLine], currentBlock :: String}
     deriving (Show)
 
 newtype BuildLet a = BuildLet ((Cfg , Env) -> (Cfg, Env, a))
@@ -40,14 +41,13 @@ instance Monad BuildLet where
         in 
         BuildLet bl
 
-data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], poppedFromStack :: [(String, Operand)], uid :: Int} 
+data Env = Env {stack :: Int, regs :: [Reg], vars :: [(String, Operand)], deferedStores :: [(String, Operand)], poppedFromStack :: [(String, Operand)], uid :: Int} 
     deriving (Show)
 
-data Operand = Lit Int | StrLit String | R Reg | SP Int | Nop | LR | AccThenUp Int | SPP
+data Operand = Lit Int | StrLit String | R Reg | RZR | SP Int | Nop | LR | AccThenUp Int | SPP | Defer String
     deriving (Eq)
 
 
-data MemOp = OffSet [Operand] | ReadThenMove [Operand] | MoveThenRead [Operand]
 instance Ord Operand where 
     (<=) (SP i) (SP j) = i <= j
     (<=) (SP _) _ = False
@@ -63,13 +63,20 @@ instance Show Operand where
     show (AccThenUp i) = "[SP], " ++ show i
     show SPP = "SP"
     show Nop = ""
+    show (Defer _) = ""
+    show RZR = "XZR"
+
+data MemOp = Ldr | Str
+
+instance Show MemOp where 
+    show Ldr = "ldr"
+    show Str = "str"
+
 
 
 data Operation = Mov 
     | Svc Int 
-    | Ldr 
     | Add 
-    | Str 
     | Sub 
     | BL String 
     | Ret 
@@ -87,9 +94,7 @@ data Condition = EQ | NE | LT | GE | LE | GT
 instance Show Operation where 
     show Mov = "mov"
     show (Svc i) = "svc #0x0" ++ show i
-    show Ldr = "ldr"
     show Add = "add"
-    show Str = "str"
     show Sub = "sub"
     show (BL s) = "bl _" ++ s
     show Mul = "mul"
@@ -102,22 +107,25 @@ instance Show Operation where
     show LdrThenMove = "ldr"
 
 
-data CodeLine = CL Operation [Operand] | CLM Operation MemOp
+data CodeLine = CL Operation [Operand] | MoffSet MemOp [Operand] | MovePThenMop MemOp [Operand] | MopThenMove MemOp [Operand]
 
 
 instance Show CodeLine where
-    show (CL Debug [StrLit string]) = "DEBUG " ++ string ++ replicate 10 '*' ++ "\n\t"
-    show (CL Cmp [_, a, b]) = "cmp " ++ show a ++ ", " ++ show b ++ "\n\t"
-    show (CL (B (Just c)) [label]) = "b" ++ show c ++ " " ++ show label ++ "\n"
-    show (CL (B Nothing) [label]) = "b " ++ show label ++"\n\t"
-    show (CL (BL func) []) = "bl _" ++ func ++ "\n\t"
-    show (CL (Svc i) []) = "svc #0x80\n\t"
-    show (CL Ldr [R r, SP i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "\n\t"   
-    show (CL LdrThenMove [to, from,  s]) = show LdrThenMove ++ " " ++ show to ++ ", " ++ "[" ++ show from ++ "], " ++ show s ++ "\n\t"   
-    show (CL Ldr [R r, AccThenUp i]) = show Ldr ++ " " ++ show (R r) ++ ", " ++ "[SP], #" ++ show i ++ "]\n\t"   
-    show (CL Ret []) = "ret\n\t"
-    show (CL op opl) = show op ++ " " ++ printOperandList opl ++ "\n\t"
-    show (CLM op mo) = show op ++ " " ++ show mo
+    show (CL Debug [StrLit string]) = "\n\t" ++ "DEBUG " ++ string ++ replicate 10 '*' 
+    show (CL Cmp [_, a, b]) = "\n\t" ++ "cmp " ++ show a ++ ", " ++ show b 
+    show (CL (B (Just c)) [label]) = "\n\t" ++ "b" ++ show c ++ " " ++ show label 
+    show (CL (B Nothing) [label]) = "\nb " ++ show label 
+    show (CL (BL func) []) = "\n\t" ++ "bl _" ++ func 
+    show (CL (Svc i) []) = "\n\tsvc #0x80"
+    show (CL LdrThenMove [to, from,  s]) = "\n\t" ++ show LdrThenMove ++ " " ++ show to ++ ", " ++ "[" ++ show from ++ "], " ++ show s 
+    show (CL Ret []) = "\n\tret"
+    show (CL op opl) = "\n\t" ++ show op ++ " " ++ printOperandList opl 
+    show (MoffSet mop [a, b, c]) = "\n\t" ++ show mop ++ " " ++ show a ++ ", [" ++ show b ++", " ++ show c ++ "]" 
+    show (MovePThenMop Str [a, b, c]) = "\n\tstr " ++ show a ++ ", [" ++ show b ++", #-" ++ show c ++ "]!" 
+    show (MovePThenMop mop [a, b, c]) = "\n\t" ++ show mop ++ " " ++ show a ++ ", [" ++ show b ++", " ++ show c ++ "]!" 
+    show (MopThenMove mop [a, b, c]) = "\n\t" ++ show mop ++ " " ++ show a ++ ", [" ++ show b ++"], " ++ show c 
+    show _ = "kjadlkjhsdkjhglkjdfh"
+
 
 printOperandList :: [Operand] -> String 
 printOperandList [] = ""
@@ -148,19 +156,48 @@ addLine :: CodeLine -> BuildLet Operand
 addLine  cl@(CL (BL _) []) = 
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env,R 0) in 
     BuildLet f
-addLine  cl@(CL Str (_:op:_)) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg }, env, op) in 
-    BuildLet f
-addLine  cl@(CL Str _) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg }, env, Nop) in 
-    BuildLet f
 addLine  cl@(CL _ (op:_)) = 
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
+    BuildLet f
+addLine cl@(MopThenMove Ldr (op:_)) = 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
+    BuildLet f
+addLine cl@(MovePThenMop Ldr (op:_)) = 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
+    BuildLet f
+addLine cl@(MoffSet Ldr (op:_)) = 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
+    BuildLet f
+addLine cl@(MopThenMove Str _ ) = 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, SP 0) in 
+    BuildLet f
+addLine cl@(MovePThenMop Str _ ) = 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, SP 0) in 
+    BuildLet f
+addLine cl@(MoffSet Str _ ) = 
+    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, SP 0) in 
     BuildLet f
 addLine  cl =
     let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, Nop) in 
     BuildLet f
 
+fixStores :: Env -> Block -> Block 
+fixStores env = 
+    foldr (\cl acc -> 
+        case cl of 
+            (MoffSet Str [a, b, Defer s]) ->  
+                let index = findIndex (\(var, _) -> var == s) $ deferedStores env in
+                case index of 
+                    Just i -> MoffSet Str [a, b, Lit (i * 16)] : acc
+                    _ -> error "variable not found"
+            _ -> cl : acc
+    ) []
+
+
+fixCfg :: Env -> Cfg -> Cfg 
+fixCfg env cfg = 
+    let fixedBlocks = foldr (\(s, b) acc -> (s, fixStores env b) : acc) [] $ blocks cfg in
+    cfg {blocks = fixedBlocks}
 
 getEnv :: BuildLet Operand -> BuildLet Env 
 getEnv (BuildLet o) = BuildLet (\bl -> let (cfg, env, _) = o bl in (cfg, env, env))
@@ -178,22 +215,29 @@ endBlock :: BuildLet Operand
 endBlock = 
     BuildLet (
         \(cfg, env) ->
-        (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [], stores = [], currentBlock = ""}, env, Nop)
+        (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [],  currentBlock = ""}, env, Nop)
+    )
+endFunction :: BuildLet Operand 
+endFunction =
+    BuildLet (
+        \(cfg, _) ->
+        (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [],  currentBlock = ""}, emptyEnv, Nop)
     )
 
 emptyCfg :: Cfg
-emptyCfg = Cfg {blocks=[], insns = [], stores = [], currentBlock = ""}
+emptyCfg = Cfg {blocks=[], insns = [],  currentBlock = ""}
+
 
 
 
 emptyEnv :: Env 
-emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11, 0], vars = [], poppedFromStack = [], uid = 0}
+emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11, 0], vars = [], deferedStores = [], poppedFromStack = [], uid = 0}
 
 
 overWriteEnv :: Env -> BuildLet Operand 
 overWriteEnv newEnv = 
     BuildLet (\(cfg, oldEnv) ->
-        let newEnv' = newEnv {uid = uid oldEnv + uid newEnv} in
+        let newEnv' = newEnv {uid = uid oldEnv + uid newEnv, deferedStores = deferedStores newEnv ++ deferedStores oldEnv} in
         (cfg, newEnv', Nop)
     )
 
