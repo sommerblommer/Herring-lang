@@ -121,7 +121,7 @@ popVar str = BuildLet (\bl ->
         case index of 
             Just i -> do 
                 popped <- popReg  
-                addLine $ MoffSet Ldr [popped, SPP, Lit (i*16)] 
+                addLine $ MoffSet Ldr [popped, SPP, Defer str2] 
             Nothing -> error $ "The variable: " ++ str2 ++ " is not on the stack"
 
 

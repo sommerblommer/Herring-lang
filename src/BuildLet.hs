@@ -185,10 +185,10 @@ fixStores :: Env -> Block -> Block
 fixStores env = 
     foldr (\cl acc -> 
         case cl of 
-            (MoffSet Str [a, b, Defer s]) ->  
+            (MoffSet mop [a, b, Defer s]) ->  
                 let index = findIndex (\(var, _) -> var == s) $ deferedStores env in
                 case index of 
-                    Just i -> MoffSet Str [a, b, Lit (i * 16)] : acc
+                    Just i -> MoffSet mop [a, b, Lit (i * 16)] : acc
                     _ -> error "variable not found"
             _ -> cl : acc
     ) []
