@@ -133,7 +133,7 @@ printOperandList [o] = show o
 printOperandList (op:ops) = show op ++ ", " ++ printOperandList ops
 
 
-type Block = [CodeLine]
+type Block = [CodeLine] 
 
 printCfg :: Cfg -> String 
 printCfg c =
