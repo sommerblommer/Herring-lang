@@ -1,17 +1,5 @@
-fibonaggi : (x : Int) -> Int 
-    if x <= 1  
-        then (return x)
-        else ( 
-            let a = fibonaggi (x - 1) in
-            let b = (fibonaggi(x  - 2)) in 
-            let _ = print (a + b) in
-        ) 
-    return x
-
 main : Int
-    let x = fibonaggi (10) in
-    let _ = print (x) in
-    return 1
+    return 10
 
 
 
