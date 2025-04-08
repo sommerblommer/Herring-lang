@@ -30,6 +30,7 @@ library
       CodeGen
       Lexer
       Lib
+      LlvmCodeGen
       Parser
       TypeCheck
       TypedAst

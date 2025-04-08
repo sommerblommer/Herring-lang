@@ -4,9 +4,9 @@ import Lib
 import Lexer (lexicalAnalysis) 
 import Parser (parse)
 import Ast (Ast, prettyPrintAst)
-import CodeGen
 import TypeCheck (typeCheckAst)
 import TypedAst 
+import LlvmCodeGen (codegenAst)
 
 main :: IO ()
 main = do  
@@ -20,6 +20,6 @@ main = do
     putStrLn "code: "
     let compiled = codegenAst  typedAst
     putStrLn compiled 
-    writeFile "output.s" compiled
+    writeFile "output.ll" compiled
 
 

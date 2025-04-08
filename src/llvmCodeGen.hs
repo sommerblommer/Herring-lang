@@ -1,34 +1,82 @@
-module Llvm where 
+module LlvmCodeGen (codegenAst) where
 import TypedAst
 
-data LLtyp = I8 | I1 | I32
-    deriving (Show)
+data LLtyp = I8 
+    | I1 
+    | I32
+instance Show LLtyp where 
+    show I8 = "i8"
+    show I1 = "i1"
+    show I32 = "i32"
 
-tastTypToLLTyp :: Typ -> LLtyp 
-tastTypToLLTyp IntType = I32
-tastTypToLLTyp BoolType = I1
-tastTypToLLTyp StringType = error "TODO" 
-tastTypToLLTyp Void = error "TODO" 
-tastTypToLLTyp (FunType _) = error "TODO" 
+tpConvert :: Typ -> LLtyp 
+tpConvert IntType = I32
+tpConvert BoolType = I1
+tpConvert StringType = error "TODO" 
+tpConvert Void = error "TODO" 
+tpConvert (FunType _) = error "TODO" 
 
 data Bop = Add | Sub | Mul | Div 
     deriving (Show)
 
 data Operand = Var String | Lit Int | BLit Bool | Nop
-    deriving (Show)
-data Operation = Bop | Store
-    deriving (Show)
+instance Show Operand where 
+    show (Var s) = "%" ++ s 
+    show (Lit i) = show i 
+    show (BLit b) = show b 
+    show Nop = ""
 data Instruction = 
     LLBinOp Bop LLtyp Operand Operand 
     | Call LLtyp Operand [(LLtyp, Operand)]
+    | Allocate LLtyp 
+    | Store LLtyp Operand Operand
     | Return LLtyp (Maybe Operand)
     | Br String 
     | Cbr Operand String String 
-    deriving (Show)
+instance Show Instruction where 
+    show (LlvmCodeGen.Return typ mop) = 
+        let expstr = maybe "" show mop
+        in "ret " ++ show typ ++ " " ++ expstr
+    show _ = error "TODO"
+        
+
+
 type Block = [Instruction]
 
 data Cfg = Cfg {blocks::[(String, Block)], insns :: [Instruction], currentBlock :: String}
+instance Show Cfg where 
+    show cfg = 
+        let a = foldl (\acc b -> "\t" ++ show b ++ "\n" ++ acc ) "" 
+        in foldl (\acc (str, block) -> str ++ a block ++ acc ) "" $ blocks cfg 
+
+startBlock :: String -> BuildLet Operand 
+startBlock str = BuildLet (\(cfg, env) -> (cfg {currentBlock = str}, env, Nop))
+
+endBlock :: BuildLet Operand 
+endBlock = 
+    BuildLet (\(cfg, env) -> 
+        let newcfg = Cfg {blocks = (currentBlock cfg, insns cfg) : blocks cfg, insns = [] ,currentBlock = ""}
+        in (newcfg, env, Nop)
+    )
+
+data FType = FT [LLtyp] LLtyp
     deriving (Show)
+data FDecl = FD String FType [(String, LLtyp)] Cfg 
+instance Show FDecl where
+    show (FD fname (FT _ ret) args cfg) = 
+        "define " ++ show ret ++ " @" ++ fname ++ "(" ++ helper args ++ ") {\n" ++ show cfg ++ "\n}\n"  
+        where 
+        helper :: [(String, LLtyp)] -> String 
+        helper [] = ""
+        helper [(n, t)] = show t ++ "%" ++ n 
+        helper ((name, typ):xs) = show typ ++ "%" ++ name ++ ", " ++ helper xs 
+
+newtype Program = Program {fdecls :: [FDecl]}
+instance Show Program where 
+    show p = foldl (\acc a -> show a ++ acc) "" $ fdecls p 
+
+idBuildlet :: BuildLet Operand 
+idBuildlet = return Nop
 
 emptyCfg :: Cfg 
 emptyCfg = Cfg {blocks = [], insns = [], currentBlock = ""}
@@ -94,15 +142,15 @@ typedBopToLLbop Gte = error "TODO"
 typedBopToLLbop Eq = error "TODO"
 
 typeOfExpr :: Expr -> LLtyp 
-typeOfExpr (BinOp _ _ _ t) = tastTypToLLTyp t
+typeOfExpr (BinOp _ _ _ t) = tpConvert t
 typeOfExpr (Ident _) = error "TODO, Lookup then convert type"
 typeOfExpr (Literal {tLit=lit}) = 
     case lit of 
         TLI _ -> I32 
         TLB _ -> I1
-typeOfExpr (FunCall _ _ t) = tastTypToLLTyp t
+typeOfExpr (FunCall _ _ t) = tpConvert t
 typeOfExpr (Range _ _ ) = error "TODO, what type is a range?"
-typeOfExpr (Closure _ t) = tastTypToLLTyp t
+typeOfExpr (Closure _ t) = tpConvert t
 
 getOp :: BuildLet Operand -> Operand 
 getOp (BuildLet bl) = let (_, _, op) = bl (emptyCfg, emptyEnv) in op  
@@ -116,7 +164,7 @@ codegenExpr (Ident ident) = error "TODO, Lookup in env"
 codegenExpr (BinOp l op r typ) = do
     lop <- codegenExpr l
     rop <- codegenExpr r 
-    addInstruction "bop" $ LLBinOp (typedBopToLLbop op) (tastTypToLLTyp typ) lop rop 
+    addInstruction "bop" $ LLBinOp (typedBopToLLbop op) (tpConvert typ) lop rop 
 codegenExpr (FunCall callee args rtyp) = do
     let fn = case callee of    
             (Ident str) -> str 
@@ -129,21 +177,41 @@ codegenExpr (FunCall callee args rtyp) = do
                 in (code, (typ, getOp code) : tops)
             ) (return Nop, []) args
     _ <- bl -- The generated code of the args 
-    addInstruction "call" $ Call (tastTypToLLTyp rtyp) (Var fn) targs
+    addInstruction "call" $ Call (tpConvert rtyp) (Var fn) targs
 codegenExpr (Range _ _ ) = error "TODO"
 codegenExpr (Closure _ _ ) = error "TODO"
 
 codegenStm :: Stm -> BuildLet Operand
 codegenStm (TypedAst.Return exp typ) = do
     ret <- codegenExpr exp 
-    let rtype = tastTypToLLTyp typ 
-    addInstruction "" $ Llvm.Return rtype ret 
+    let rtype = tpConvert typ 
+    addInstruction "" $ LlvmCodeGen.Return rtype $ Just ret
     
 codegenStm _ = error "TODO"
 
-codegenFunc :: Function -> BuildLet Operand
-codegenFunc = error "TODO"
+storeArgs :: [(String, Typ)] -> BuildLet Operand 
+storeArgs = foldr (\(name, typ) acc -> do
+                let t = tpConvert typ  
+                _ <- acc 
+                store <- addInstruction (name ++ "ptr") $ Allocate t 
+                addInstruction "" $ Store t (Var name) store
+            ) idBuildlet 
+
+codegenFunc :: Function -> FDecl
+codegenFunc fun = 
+    let args = map (\(name, typ) -> (name, tpConvert typ)) $ params fun in
+    let typs = map (\(_, typ) -> tpConvert typ) $ params fun in
+    let BuildLet a = do 
+            _ <- startBlock "" 
+            _ <- storeArgs $ params fun 
+            _ <- codegenStm $ body fun
+            endBlock 
+    in let (cfg, _, _) = a (emptyCfg, emptyEnv) in
+    FD (funName fun) (FT typs (tpConvert (returnType fun))) args cfg 
 
 
 codegenAst :: TypedAst -> String  
-codegenAst tast = error ""
+codegenAst tast = 
+    let fds = map codegenFunc tast in 
+    let prog = Program {fdecls=fds} in 
+    show prog
