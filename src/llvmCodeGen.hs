@@ -134,7 +134,12 @@ codegenExpr (Range _ _ ) = error "TODO"
 codegenExpr (Closure _ _ ) = error "TODO"
 
 codegenStm :: Stm -> BuildLet Operand
-codegenStm = error "TODO"
+codegenStm (TypedAst.Return exp typ) = do
+    ret <- codegenExpr exp 
+    let rtype = tastTypToLLTyp typ 
+    addInstruction "" $ Llvm.Return rtype ret 
+    
+codegenStm _ = error "TODO"
 
 codegenFunc :: Function -> BuildLet Operand
 codegenFunc = error "TODO"
