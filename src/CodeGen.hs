@@ -131,7 +131,7 @@ popVar str = BuildLet (\bl ->
 --       : Expr ~ The expression to generate code for. 
 -- Return: BuildLet ~ State monad, in which the state is a CFG
 codegenExpr :: Expr -> BuildLet Operand
-codegenExpr (Ident str) = popVar str
+codegenExpr (Ident str _) = popVar str
 codegenExpr (Literal {tLit=TLI i}) = do
     op <- popReg  
     addLine $ CL Mov [op, Lit i]
@@ -180,7 +180,7 @@ codegenExpr (BinOp l op r _) =
             addLine $ CL binop [nextop, lused, rused]
 codegenExpr (FunCall fname args _) = do
     let fn = case fname of    
-            (Ident str) -> str 
+            (Ident str _) -> str 
             _ -> error "malformed function call"
     _ <- fst $ Prelude.foldr (\arg (_, i) -> 
                 let code = do

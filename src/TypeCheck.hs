@@ -42,7 +42,7 @@ lookupFunc env iden =
             _ -> error $ "function " ++ iden ++ " not defined"
 
 getTypeOfExpr :: Env -> TAST.Expr -> Typ 
-getTypeOfExpr env (Ident var) = case vars env DM.!? var  of 
+getTypeOfExpr env (Ident var _) = case vars env DM.!? var  of 
     Just t -> t 
     Nothing -> error $ show var ++ " has no type"
 getTypeOfExpr _ Literal {tLit=l} = case l of 
@@ -59,7 +59,7 @@ typeCheckExpr _ LitExp {lit = LB i} = (TAST.Literal {tLit = TLB i}, IntType)
 typeCheckExpr env IExp {ident = str} = 
     let lup = vars env !? str in 
     case lup of 
-        Just t -> (Ident str, t)
+        Just t -> (Ident str t, t)
         Nothing -> error $ "variable: " ++ str ++ " has not been defined"
 typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} = 
     let (leftExp, ltyp) = typeCheckExpr env l in
@@ -81,7 +81,7 @@ typeCheckExpr env (Ast.FunCall fvar args) =
             ) $ zip args paramTyps
     in
     let rType = last paramTyps in
-    (TAST.FunCall (Ident fname) typedArgs rType, rType) 
+    (TAST.FunCall (Ident fname rType) typedArgs rType, rType) 
 
 typeCheckExpr env (Ast.Range start end) = 
     let tstart = assertType env start TAST.IntType in
