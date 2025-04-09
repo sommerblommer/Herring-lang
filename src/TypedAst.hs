@@ -38,7 +38,7 @@ data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte | Eq
 
 data Expr = 
     Literal {tLit :: Lit} 
-    | Ident String 
+    | Ident String Typ 
     | BinOp Expr Op Expr Typ
     | FunCall Expr [Expr] Typ
     | Range Expr Expr
@@ -58,7 +58,7 @@ type TypedAst = [Function]
 
 
 instance Show Expr where 
-    show (Ident s) = s 
+    show (Ident s _ ) = s 
     show (Literal {tLit=TLI i}) =  show i
     show (Literal {tLit=TLB i}) =  show i
     show (BinOp l o r t) = "(" ++ show l ++ show o ++ show r ++ ") : " ++ show t
@@ -108,7 +108,7 @@ makeSpaces a xs = replicate (a - head xs) ' '
 prettyPrintExpr :: Int -> [Int] -> Expr -> String
 prettyPrintExpr _ _ Literal {tLit=TLI l} = "Literal " ++ show l ++ "\n"
 prettyPrintExpr _ _ Literal {tLit=TLB l} = "Literal " ++ show l ++ "\n"
-prettyPrintExpr _ _  (Ident ide) = "ident " ++ ide ++ "\n"
+prettyPrintExpr _ _  (Ident ide _) = "ident " ++ ide ++ "\n"
 prettyPrintExpr indent xs  (BinOp l o r t) = 
     let start = "BinOp : " ++ show o ++" -> " ++ show t ++ "\n" in
     let indents = makeIndents 0 xs in 
