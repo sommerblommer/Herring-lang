@@ -1,19 +1,22 @@
 module LlvmCodeGen (codegenAst) where
 import TypedAst
+import Lib (llvmStdLib)
 
 data LLtyp = I8 
     | I1 
     | I32
+    | Void
 instance Show LLtyp where 
     show I8 = "i8"
     show I1 = "i1"
     show I32 = "i32"
+    show LlvmCodeGen.Void = "void"
 
 tpConvert :: Typ -> LLtyp 
 tpConvert IntType = I32
 tpConvert BoolType = I1
 tpConvert StringType = error "TODO" 
-tpConvert Void = error "TODO" 
+tpConvert TypedAst.Void = LlvmCodeGen.Void 
 tpConvert (FunType _) = error "TODO" 
 
 data Bop = Add | Sub | Mul | Div 
@@ -145,21 +148,21 @@ freshVar ident = do
     i <- getFresh 
     return $ Var (ident ++ show i)
 
-addInstruction :: String -> Instruction -> BuildLet Operand 
-addInstruction str ins@(LLBinOp _ _ _ _) = do
+addInstruction :: Maybe String -> Instruction -> BuildLet Operand 
+addInstruction (Just str) ins@(LLBinOp _ _ _ _) = do
     fresh <- freshVar str   
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
-addInstruction str ins@(Call _ _ _) = do
+addInstruction (Just str) ins@(Call _ _ _) = do
     fresh <- freshVar str   
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
-addInstruction str ins@(Allocate _) = do
+addInstruction (Just str) ins@(Allocate _) = do
     fresh <- freshVar str   
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
-addInstruction str ins@(Load _ _) = do
+addInstruction (Just str) ins@(Load _ _) = do
     fresh <- freshVar str   
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just (fresh)) ins : insns cfg}), env, fresh))
 -- Case of no return op
-addInstruction str ins = do 
+addInstruction _ ins = do 
     BuildLet (\(cfg, env) -> ((cfg {insns = Line Nothing ins : insns cfg}), env, Nop))
 
 typedBopToLLbop :: Op -> Bop 
@@ -216,16 +219,25 @@ codegenExpr (Ident ident typ) = do
             in 
             (cfg, env, o)
         )
-    addInstruction "load" $ Load (tpConvert typ) o
+    addInstruction (Just "load") $ Load (tpConvert typ) o
 
 codegenExpr (BinOp l op r typ) = do
     lop <- codegenExpr l
     rop <- codegenExpr r 
-    addInstruction "bop" $ LLBinOp (typedBopToLLbop op) (tpConvert typ) lop rop 
+    addInstruction (Just "bop") $ LLBinOp (typedBopToLLbop op) (tpConvert typ) lop rop 
 codegenExpr (FunCall callee args rtyp) = do
+    -- Alters the function call of print 
+    -- This is to allow for a print function with a polymorphic type 
+    -- Might be changed in the future depending on the type system i want to use
+    -- Might also cover other functions later on
+    let handle_externals "print" [I32] = (Nothing, "print_integer")
+        handle_externals name _  = (Just "call", name) 
+
     let fn = case callee of    
             (Ident str _) -> str 
             _ -> error "malformed function call"
+    -- The following code is a mess
+    -- because of the control monad and the explicit types of llvm 
     env <- getEnv 
     cfg <- getCfg 
     let (bl, BuildLet grimt) = Prelude.foldr (\arg (cacc, tacc) ->  
@@ -237,7 +249,9 @@ codegenExpr (FunCall callee args rtyp) = do
     
     let (_, _, targs) = grimt (cfg, env) 
 
-    addInstruction "call" $ Call (tpConvert rtyp) fn targs 
+    let (ret, ffn) = handle_externals fn (map fst targs) 
+
+    addInstruction ret $ Call (tpConvert rtyp) ffn targs 
 codegenExpr (Range _ _ ) = error "TODO"
 codegenExpr (Closure _ _ ) = error "TODO"
 
@@ -256,22 +270,25 @@ codegenStm (Scope stms) =
 codegenStm (TypedAst.Return exp typ) = do
     ret <- codegenExpr exp 
     let rtype = tpConvert typ 
-    addInstruction "" $ LlvmCodeGen.Return rtype $ Just ret
+    addInstruction Nothing $ LlvmCodeGen.Return rtype $ Just ret
     
 codegenStm (LetIn var expr typ ) = do 
     let t = tpConvert typ 
     rhs <- codegenExpr expr 
-    store <- addInstruction (var ++ "ptr") $ Allocate t 
-    _ <- insertIntoEnv var store 
-    addInstruction "" $ Store t rhs store
+    if var == "_" then idBuildlet 
+    else do store <- addInstruction (Just (var ++ "ptr")) $ Allocate t 
+            _ <- insertIntoEnv var store 
+            addInstruction Nothing $ Store t rhs store
+
+
 codegenStm _ = error "TODO"
 
 storeArgs :: [(String, Typ)] -> BuildLet Operand 
 storeArgs = foldr (\(name, typ) acc -> do
                 let t = tpConvert typ  
                 _ <- acc 
-                store <- addInstruction (name ++ "ptr") $ Allocate t 
-                _ <- addInstruction "" $ Store t (Var name) store
+                store <- addInstruction (Just (name ++ "ptr")) $ Allocate t 
+                _ <- addInstruction Nothing $ Store t (Var name) store
                 insertIntoEnv name store 
             ) idBuildlet 
 
@@ -292,4 +309,4 @@ codegenAst :: TypedAst -> String
 codegenAst tast = 
     let fds = map codegenFunc tast in 
     let prog = Program {fdecls=fds} in 
-    show prog
+    llvmStdLib ++ show prog

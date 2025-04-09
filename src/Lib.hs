@@ -1,5 +1,6 @@
 module Lib
-    ( stdLib
+    ( stdLib, 
+      llvmStdLib
     ) where
 
 stdLib :: String
@@ -13,3 +14,7 @@ stdLib = "\n_print: \
           \ \n\tadd SP, SP, 32 \ 
           \ \n\tldr LR, [SP], 16 \ 
           \ \n\tret" 
+
+
+llvmStdLib :: String 
+llvmStdLib = "\ndeclare void @print_integer(i32)\n"

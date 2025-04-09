@@ -2,7 +2,9 @@ add : (x : Int) -> (y : Int) -> Int
     return x + y
 main : Int
     let a = 7 in
-    return add (a, 35)
+    let res = add (a, 35)
+    in let _ = print (res)
+    in return res 
 
 
 
