@@ -452,9 +452,14 @@ ruleFuncs input stack =
             let floop = Ps (ForLoop ident iter body) in
             logStack (floop:rest) 7
          -- if-then-else statement
+
          ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el : _ : E thn : _ : E condition : _ : rest) -> 
             let funcall = Ps (IfThenElse condition thn el) in
             logStack (funcall:rest) 6
+         -- fun call with no args
+         ([V "Exp", T LeftParen, T RightParen], _: _ : E exp : rest) -> 
+            let funcall = E (FunCall exp []) in
+            logStack (funcall:rest) 3
          ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg : _ : E exp : rest) -> 
             let funcall = E (FunCall exp [arg]) in
             logStack (funcall:rest) 4

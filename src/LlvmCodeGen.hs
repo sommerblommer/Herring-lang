@@ -26,10 +26,10 @@ instance Show Bop where
     show Mul = "mul"
     show Div = "sdiv"
     show Eqll = "eq" 
-    show Ltll = "lt" 
-    show Ltell = "lte" 
-    show Gtell = "gte" 
-    show Gtll = "gt" 
+    show Ltll = "slt" 
+    show Ltell = "sle" 
+    show Gtell = "sge" 
+    show Gtll = "sgt" 
 data Operand = Var String | Lit Int | BLit Bool | Nop
 instance Show Operand where 
     show (Var s) = "%" ++ s 
@@ -249,8 +249,9 @@ codegenExpr (FunCall callee args rtyp) = do
     -- This is to allow for a print function with a polymorphic type 
     -- Might be changed in the future depending on the type system i want to use
     -- Might also cover other functions later on
-    let handle_externals "print" [I32] = (Nothing, "print_integer")
-        handle_externals name _  = (Just "call", name) 
+    let handle_externals "print" [I32] LlvmCodeGen.Void = (Nothing, "print_integer")
+        handle_externals "read" [] I32 = (Just "call", "read_integer")
+        handle_externals name _ _ = (Just "call", name) 
 
     let fn = case callee of    
             (Ident str _) -> str 
@@ -268,7 +269,7 @@ codegenExpr (FunCall callee args rtyp) = do
     
     let (_, _, targs) = grimt (cfg, env) 
 
-    let (ret, ffn) = handle_externals fn (map fst targs) 
+    let (ret, ffn) = handle_externals fn (map fst targs) (tpConvert rtyp) 
 
     addInstruction ret $ Call (tpConvert rtyp) ffn targs 
 codegenExpr (Range _ _ ) = error "TODO"

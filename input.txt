@@ -1,9 +1,9 @@
 add : (x : Int) -> (y : Int) -> Int 
     return x + y
 main : Int
-    let a = 5 in
+    let a = read ( ) in
     let res = add (a, 35)
-    in if a == 7 then print (res) 
+    in if a > 7 then print (res) 
                  else print (7)
     return res 
 

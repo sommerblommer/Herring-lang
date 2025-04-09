@@ -21,6 +21,7 @@ Stm => for ident in Exp -> Exp <-
 
 
 Exp => Exp ( Fparams )
+Exp => Exp ( )
 Exp => Exp Op Term 
 Exp => Term 
 Exp => Exp . . Term

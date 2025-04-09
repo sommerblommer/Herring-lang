@@ -3,9 +3,17 @@ import Data.List (uncons)
 import GHC.RTS.Flags (ProfFlags(heapProfileInterval))
 
 predefinedFunctions :: [Function]
-predefinedFunctions = [Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}]
+predefinedFunctions = 
+    [   
+        Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}
+    ,   Function {funName ="read", params=[], body = Scope [], returnType = IntType}
+    ]
 predefinedFunctions2 :: [Typ] 
-predefinedFunctions2 = [FunType ("print", [IntType, Void])]
+predefinedFunctions2 = 
+    [
+        FunType ("print", [IntType, Void])
+    ,   FunType ("read", [Void, IntType])
+    ]
 
 data Typ = 
       IntType 

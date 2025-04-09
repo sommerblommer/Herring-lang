@@ -17,4 +17,4 @@ stdLib = "\n_print: \
 
 
 llvmStdLib :: String 
-llvmStdLib = "\ndeclare void @print_integer(i32)\n"
+llvmStdLib = "\ndeclare void @print_integer(i32)\ndeclare i32 @read_integer()\n"
