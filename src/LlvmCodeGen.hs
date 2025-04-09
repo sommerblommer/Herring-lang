@@ -17,8 +17,11 @@ tpConvert Void = error "TODO"
 tpConvert (FunType _) = error "TODO" 
 
 data Bop = Add | Sub | Mul | Div 
-    deriving (Show)
-
+instance Show Bop where 
+    show Add = "add"
+    show Sub = "sub"
+    show Mul = "mul"
+    show Div = "sdiv"
 data Operand = Var String | Lit Int | BLit Bool | Nop
 instance Show Operand where 
     show (Var s) = "%" ++ s 
@@ -27,7 +30,7 @@ instance Show Operand where
     show Nop = ""
 data Instruction = 
     LLBinOp Bop LLtyp Operand Operand 
-    | Call LLtyp Operand [(LLtyp, Operand)]
+    | Call LLtyp String [(LLtyp, Operand)]
     | Allocate LLtyp 
     | Store LLtyp Operand Operand
     | Load LLtyp Operand
@@ -41,11 +44,15 @@ instance Show Instruction where
     show (Store typ op1 op2) = "store " ++ show typ ++ " " ++ show op1 ++ ", ptr " ++ show op2  
     show (Load typ op ) = "load " ++ show typ ++ ", ptr " ++ show op  
     show (Allocate typ) = "alloca " ++ show typ
-    show (Call _ _ _ ) = error "call TODO"
-    show (LLBinOp _ _ _ _ ) = error "bop TODO"
+    show (Call rtyp fname args ) = "call " ++ show rtyp ++ " @" ++ fname ++ "(" ++ argPrinter args ++ ")"
+        where 
+        argPrinter [] = ""
+        argPrinter [(t, n)] = show t ++ " " ++ show n
+        argPrinter ((t, n):xs) = show t ++ " " ++ show n ++ ", " ++ argPrinter xs 
+    show (LLBinOp bop typ op1 op2 ) = show bop ++ " " ++ show typ ++ " "++ show op1 ++ ", " ++ show op2
     show (Br _) = error "br TODO"
     show (Cbr _ _ _) = error "cbr TODO"
-        
+ 
 
 
 type Block = [Line]
@@ -81,7 +88,7 @@ instance Show FDecl where
         helper :: [(String, LLtyp)] -> String 
         helper [] = ""
         helper [(n, t)] = show t ++ "%" ++ n 
-        helper ((name, typ):xs) = show typ ++ "%" ++ name ++ ", " ++ helper xs 
+        helper ((name, typ):xs) = show typ ++ " %" ++ name ++ ", " ++ helper xs 
 
 newtype Program = Program {fdecls :: [FDecl]}
 instance Show Program where 
@@ -150,11 +157,10 @@ addInstruction str ins@(Allocate _) = do
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
 addInstruction str ins@(Load _ _) = do
     fresh <- freshVar str   
-    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
+    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just (fresh)) ins : insns cfg}), env, fresh))
 -- Case of no return op
 addInstruction str ins = do 
-    fresh <- freshVar str   
-    BuildLet (\(cfg, env) -> ((cfg {insns = Line Nothing ins : insns cfg}), env, fresh))
+    BuildLet (\(cfg, env) -> ((cfg {insns = Line Nothing ins : insns cfg}), env, Nop))
 
 typedBopToLLbop :: Op -> Bop 
 typedBopToLLbop Plus = Add
@@ -168,7 +174,7 @@ typedBopToLLbop Eq = error "TODO"
 
 typeOfExpr :: Expr -> LLtyp 
 typeOfExpr (BinOp _ _ _ t) = tpConvert t
-typeOfExpr (Ident _ _) = error "TODO, Lookup then convert type"
+typeOfExpr (Ident _ t) = tpConvert t 
 typeOfExpr (Literal {tLit=lit}) = 
     case lit of 
         TLI _ -> I32 
@@ -177,11 +183,24 @@ typeOfExpr (FunCall _ _ t) = tpConvert t
 typeOfExpr (Range _ _ ) = error "TODO, what type is a range?"
 typeOfExpr (Closure _ t) = tpConvert t
 
-getOp :: BuildLet Operand -> Operand 
-getOp (BuildLet bl) = let (_, _, op) = bl (emptyCfg, emptyEnv) in op  
 
 getEnv :: BuildLet Env 
 getEnv = BuildLet (\(cfg, env) -> (cfg, env, env))
+getCfg :: BuildLet Cfg 
+getCfg = BuildLet (\(cfg, env) -> (cfg, env, cfg)) 
+
+
+bruh :: BuildLet [(LLtyp, Operand)] -> Expr -> BuildLet [(LLtyp, Operand)]
+bruh acc arg = do
+    a <- acc
+    BuildLet (\(cfg, env) -> 
+        let typ = typeOfExpr arg in
+        let BuildLet cop =
+                codegenExpr arg
+        in let (_, _, op) = cop (cfg, env)
+        in (cfg, env, (typ, op):a)
+        )
+    
 
 codegenExpr :: Expr -> BuildLet Operand 
 codegenExpr Literal {tLit=lit} = 
@@ -190,10 +209,14 @@ codegenExpr Literal {tLit=lit} =
         TLB b -> return $ BLit b 
 
 codegenExpr (Ident ident typ) = do 
-    env <- getEnv 
-    case lookup ident (vars env) of
-        Just op -> addInstruction "load" $ Load (tpConvert typ) op
-        _ -> idBuildlet
+    o <- BuildLet (\(cfg, env) ->
+        let o = case lookup ident (vars env) of
+                Just op -> op
+                _ -> error $ "could not find var " ++ ident ++ "\nIn env: " ++ show (vars env)
+            in 
+            (cfg, env, o)
+        )
+    addInstruction "load" $ Load (tpConvert typ) o
 
 codegenExpr (BinOp l op r typ) = do
     lop <- codegenExpr l
@@ -203,15 +226,18 @@ codegenExpr (FunCall callee args rtyp) = do
     let fn = case callee of    
             (Ident str _) -> str 
             _ -> error "malformed function call"
-    let (bl, targs) = Prelude.foldr (\arg (acc, tops) -> 
-                let typ = typeOfExpr arg in
-                let code = do
-                        _ <- acc
-                        codegenExpr arg
-                in (code, (typ, getOp code) : tops)
-            ) (return Nop, []) args
-    _ <- bl -- The generated code of the args 
-    addInstruction "call" $ Call (tpConvert rtyp) (Var fn) targs
+    env <- getEnv 
+    cfg <- getCfg 
+    let (bl, BuildLet grimt) = Prelude.foldr (\arg (cacc, tacc) ->  
+                 let code = codegenExpr arg in
+                 let t = bruh tacc arg in
+                 (cacc >> code, t)
+            ) (idBuildlet, return ([])) args
+    _ <- bl
+    
+    let (_, _, targs) = grimt (cfg, env) 
+
+    addInstruction "call" $ Call (tpConvert rtyp) fn targs 
 codegenExpr (Range _ _ ) = error "TODO"
 codegenExpr (Closure _ _ ) = error "TODO"
 
@@ -224,9 +250,8 @@ insertIntoEnv name op =
 
 codegenStm :: Stm -> BuildLet Operand
 codegenStm (Scope stms) = 
-    foldl (\acc stm ->  do
-        _ <- acc 
-        codegenStm stm
+    foldl (\acc stm -> 
+        acc >> codegenStm stm
     ) idBuildlet stms 
 codegenStm (TypedAst.Return exp typ) = do
     ret <- codegenExpr exp 
@@ -246,7 +271,8 @@ storeArgs = foldr (\(name, typ) acc -> do
                 let t = tpConvert typ  
                 _ <- acc 
                 store <- addInstruction (name ++ "ptr") $ Allocate t 
-                addInstruction "" $ Store t (Var name) store
+                _ <- addInstruction "" $ Store t (Var name) store
+                insertIntoEnv name store 
             ) idBuildlet 
 
 codegenFunc :: Function -> FDecl

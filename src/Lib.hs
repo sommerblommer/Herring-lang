@@ -12,4 +12,4 @@ stdLib = "\n_print: \
           \ \n\tbl _printf \ 
           \ \n\tadd SP, SP, 32 \ 
           \ \n\tldr LR, [SP], 16 \ 
-          \ \n\tret"
+          \ \n\tret" 
