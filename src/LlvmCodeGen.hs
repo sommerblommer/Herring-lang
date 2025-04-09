@@ -19,12 +19,17 @@ tpConvert StringType = error "TODO"
 tpConvert TypedAst.Void = LlvmCodeGen.Void 
 tpConvert (FunType _) = error "TODO" 
 
-data Bop = Add | Sub | Mul | Div 
+data Bop = Add | Sub | Mul | Div | Eqll | Ltll | Ltell | Gtell | Gtll 
 instance Show Bop where 
     show Add = "add"
     show Sub = "sub"
     show Mul = "mul"
     show Div = "sdiv"
+    show Eqll = "eq" 
+    show Ltll = "lt" 
+    show Ltell = "lte" 
+    show Gtell = "gte" 
+    show Gtll = "gt" 
 data Operand = Var String | Lit Int | BLit Bool | Nop
 instance Show Operand where 
     show (Var s) = "%" ++ s 
@@ -33,6 +38,7 @@ instance Show Operand where
     show Nop = ""
 data Instruction = 
     LLBinOp Bop LLtyp Operand Operand 
+    | Icmp Bop LLtyp Operand Operand 
     | Call LLtyp String [(LLtyp, Operand)]
     | Allocate LLtyp 
     | Store LLtyp Operand Operand
@@ -53,8 +59,9 @@ instance Show Instruction where
         argPrinter [(t, n)] = show t ++ " " ++ show n
         argPrinter ((t, n):xs) = show t ++ " " ++ show n ++ ", " ++ argPrinter xs 
     show (LLBinOp bop typ op1 op2 ) = show bop ++ " " ++ show typ ++ " "++ show op1 ++ ", " ++ show op2
-    show (Br _) = error "br TODO"
-    show (Cbr _ _ _) = error "cbr TODO"
+    show (Icmp bop typ op1 op2 ) = "icmp " ++ show bop ++ " " ++ show typ ++ " "++ show op1 ++ ", " ++ show op2
+    show (Br label) = "br label %" ++ label
+    show (Cbr op branch1 branch2) = "br i1 " ++ show op ++ ", label %" ++ branch1 ++ ", label %" ++ branch2  
  
 
 
@@ -69,7 +76,13 @@ data Cfg = Cfg {blocks::[(String, Block)], insns :: [Line], currentBlock :: Stri
 instance Show Cfg where 
     show cfg = 
         let a = foldl (\acc b -> "\t" ++ show b ++ "\n" ++ acc ) "" 
-        in foldl (\acc (str, block) -> str ++ a block ++ acc ) "" $ blocks cfg 
+        in let  handleRest acc [(_, block)] = a block ++ acc
+                handleRest acc ((str, block):xs) =  
+                    let b = str ++ ":\n" ++ a block ++ acc 
+                    in handleRest b xs
+                handleRest _ _ = ""
+        in handleRest "" $ blocks cfg
+        
 
 startBlock :: String -> BuildLet Operand 
 startBlock str = BuildLet (\(cfg, env) -> (cfg {currentBlock = str}, env, Nop))
@@ -108,6 +121,12 @@ data Env = Env {vars :: [(String, Operand)], uid :: Int}
 emptyEnv :: Env 
 emptyEnv = Env {vars = [], uid = 0}
 
+overWriteEnv :: Env -> BuildLet () 
+overWriteEnv e = BuildLet (\(cfg, oldEnv) ->
+                    let newEnv = e {uid = uid e + uid oldEnv} -- keep on having a unique number
+                    in (cfg, newEnv, ())
+                )
+
 newtype BuildLet a = BuildLet ((Cfg , Env) -> (Cfg, Env, a))
 
 instance Functor BuildLet where 
@@ -143,24 +162,16 @@ instance Monad BuildLet where
 getFresh :: BuildLet Int 
 getFresh = BuildLet (\(cfg, env) -> let fresh = uid env in (cfg, env {uid = fresh + 1}, fresh))
 
-freshVar :: String -> BuildLet Operand 
+freshVar :: String -> BuildLet String 
 freshVar ident = do 
     i <- getFresh 
-    return $ Var (ident ++ show i)
+    return $ ident ++ show i
 
 addInstruction :: Maybe String -> Instruction -> BuildLet Operand 
-addInstruction (Just str) ins@(LLBinOp _ _ _ _) = do
+addInstruction (Just str) ins = do
     fresh <- freshVar str   
-    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
-addInstruction (Just str) ins@(Call _ _ _) = do
-    fresh <- freshVar str   
-    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
-addInstruction (Just str) ins@(Allocate _) = do
-    fresh <- freshVar str   
-    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just fresh) ins : insns cfg}), env, fresh))
-addInstruction (Just str) ins@(Load _ _) = do
-    fresh <- freshVar str   
-    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just (fresh)) ins : insns cfg}), env, fresh))
+    BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just (Var fresh)) ins : insns cfg}), env, Var fresh))
+
 -- Case of no return op
 addInstruction _ ins = do 
     BuildLet (\(cfg, env) -> ((cfg {insns = Line Nothing ins : insns cfg}), env, Nop))
@@ -169,11 +180,11 @@ typedBopToLLbop :: Op -> Bop
 typedBopToLLbop Plus = Add
 typedBopToLLbop Minus = Sub
 typedBopToLLbop Mult = Mul
-typedBopToLLbop Lt = error "TODO"
-typedBopToLLbop Lte = error "TODO"
-typedBopToLLbop Gt = error "TODO"
-typedBopToLLbop Gte = error "TODO"
-typedBopToLLbop Eq = error "TODO"
+typedBopToLLbop Lt = Ltll 
+typedBopToLLbop Lte = Ltell
+typedBopToLLbop Gt = Gtll
+typedBopToLLbop Gte = Gtell
+typedBopToLLbop Eq = Eqll
 
 typeOfExpr :: Expr -> LLtyp 
 typeOfExpr (BinOp _ _ _ t) = tpConvert t
@@ -213,18 +224,26 @@ codegenExpr Literal {tLit=lit} =
 
 codegenExpr (Ident ident typ) = do 
     o <- BuildLet (\(cfg, env) ->
-        let o = case lookup ident (vars env) of
-                Just op -> op
-                _ -> error $ "could not find var " ++ ident ++ "\nIn env: " ++ show (vars env)
-            in 
-            (cfg, env, o)
-        )
+            let o = case lookup ident (vars env) of
+                    Just op -> op
+                    _ -> error $ "could not find var " ++ ident ++ "\nIn env: " ++ show (vars env)
+            in (cfg, env, o)
+         )
     addInstruction (Just "load") $ Load (tpConvert typ) o
 
 codegenExpr (BinOp l op r typ) = do
+    let isCmp Lte = True
+        isCmp Lt = True
+        isCmp Gte = True
+        isCmp Gt = True
+        isCmp Eq = True
+        isCmp _ = False
     lop <- codegenExpr l
     rop <- codegenExpr r 
-    addInstruction (Just "bop") $ LLBinOp (typedBopToLLbop op) (tpConvert typ) lop rop 
+
+    if isCmp op
+        then addInstruction (Just "bop") $ Icmp (typedBopToLLbop op) I32 lop rop 
+        else addInstruction (Just "bop") $ LLBinOp (typedBopToLLbop op) (tpConvert typ) lop rop 
 codegenExpr (FunCall callee args rtyp) = do
     -- Alters the function call of print 
     -- This is to allow for a print function with a polymorphic type 
@@ -279,6 +298,25 @@ codegenStm (LetIn var expr typ ) = do
     else do store <- addInstruction (Just (var ++ "ptr")) $ Allocate t 
             _ <- insertIntoEnv var store 
             addInstruction Nothing $ Store t rhs store
+
+codegenStm (IfThenElse cond thn els) = do 
+    thenLabel <- freshVar "then"
+    elseLabel <- freshVar "else"
+    endLabel <- freshVar "endITE"
+    env <- getEnv -- save inital env for scoping 
+    cndop <- codegenExpr cond 
+    _ <- addInstruction Nothing $ Cbr cndop thenLabel elseLabel 
+    _ <- endBlock 
+    _ <- startBlock thenLabel
+    _ <- codegenExpr thn 
+    _ <- addInstruction Nothing $ Br endLabel 
+    _ <- endBlock 
+    _ <- startBlock elseLabel
+    _ <- overWriteEnv env
+    _ <- codegenExpr els 
+    _ <- addInstruction Nothing $ Br endLabel 
+    _ <- endBlock 
+    startBlock endLabel
 
 
 codegenStm _ = error "TODO"
