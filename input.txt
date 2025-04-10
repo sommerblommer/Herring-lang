@@ -1,11 +1,8 @@
-add : (x : Int) -> (y : Int) -> Int 
-    return x + y
 main : Int
-    let a = read ( ) in
-    let res = add (a, 35)
-    in if a > 7 then print (res) 
-                 else print (7)
-    return res 
+    for i in 0..10 -> 
+        print (i * i)
+    <-
+    return 1 
 
 
 

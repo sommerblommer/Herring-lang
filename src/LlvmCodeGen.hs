@@ -171,7 +171,6 @@ addInstruction :: Maybe String -> Instruction -> BuildLet Operand
 addInstruction (Just str) ins = do
     fresh <- freshVar str   
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just (Var fresh)) ins : insns cfg}), env, Var fresh))
-
 -- Case of no return op
 addInstruction _ ins = do 
     BuildLet (\(cfg, env) -> ((cfg {insns = Line Nothing ins : insns cfg}), env, Nop))
@@ -264,7 +263,7 @@ codegenExpr (FunCall callee args rtyp) = do
                  let code = codegenExpr arg in
                  let t = bruh tacc arg in
                  (cacc >> code, t)
-            ) (idBuildlet, return ([])) args
+            ) (idBuildlet, return []) args
     _ <- bl
     
     let (_, _, targs) = grimt (cfg, env) 
@@ -283,6 +282,7 @@ insertIntoEnv name op =
     )
 
 codegenStm :: Stm -> BuildLet Operand
+codegenStm (StmExpr _ _ ) = error "TODO"
 codegenStm (Scope stms) = 
     foldl (\acc stm -> 
         acc >> codegenStm stm
@@ -319,8 +319,35 @@ codegenStm (IfThenElse cond thn els) = do
     _ <- endBlock 
     startBlock endLabel
 
-
-codegenStm _ = error "TODO"
+codegenStm (ForLoop var iter body typ) = do 
+    let helper op = BuildLet (\(cfg, env) -> (cfg, env, op))
+    condLabel <- freshVar "cond"
+    bodyLabel <- freshVar "body"
+    endLabel <- freshVar "end"
+    iterVar <- case iter of 
+                (Range start end) -> do 
+                    alloca <- addInstruction (Just "cond") $ Allocate I32 
+                    sop <- codegenExpr start 
+                    en <- codegenExpr end 
+                    _ <- addInstruction Nothing $ Store I32 sop alloca
+                    _ <- addInstruction Nothing $ Br condLabel
+                    _ <- insertIntoEnv var alloca
+                    _ <- endBlock 
+                    _ <- startBlock condLabel
+                    load <- addInstruction (Just "cmpLoad") $ Load I32 alloca
+                    cmp <- addInstruction (Just "cmp") $ Icmp Ltll I32 load en
+                    _ <- addInstruction Nothing $ Cbr cmp bodyLabel endLabel 
+                    helper alloca
+                _ -> error "Should not be possible"
+    _ <- endBlock 
+    _ <- startBlock bodyLabel 
+    _ <- codegenExpr body 
+    l <- addInstruction (Just "load") $ Load I32 iterVar
+    add <- addInstruction (Just "plusOne") $ LLBinOp Add I32 l (Lit 1)
+    _ <- addInstruction Nothing $ Store I32 add iterVar
+    _ <- addInstruction Nothing $ Br condLabel 
+    _ <- endBlock 
+    startBlock endLabel
 
 storeArgs :: [(String, Typ)] -> BuildLet Operand 
 storeArgs = foldr (\(name, typ) acc -> do
