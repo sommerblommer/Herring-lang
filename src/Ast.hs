@@ -13,9 +13,12 @@ data Expr =
     | FunCall Expr [Expr] -- First expression has to be an ident
     | Range Expr Expr
     | Closure Stm 
+    | ArrLit [Expr]
+    | ArrLookUp Expr Expr
 
 data Stm = 
     LetIn String Expr 
+    | VarInst String Expr
     | ForLoop String Expr Expr -- for $string in $iter $body
     | Return Expr
     | Scope [Stm]
@@ -51,9 +54,15 @@ instance Show Expr where
         show fname ++ "(" ++ argString ++ ")" 
     show (Range l r) = show l ++ ".." ++ show r
     show (Closure stm) = "(" ++ show stm ++ ")" 
+    show (ArrLit exps) = 
+        let argString = foldl (\acc e -> show e ++ " " ++ acc) "" exps in
+        "[" ++ argString ++ "]" 
+
+    show (ArrLookUp lhs rhs) = show lhs ++ "[" ++ show rhs ++ "]" 
 
 instance Show Stm where 
     show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
+    show (VarInst str expr) = "var " ++ str ++ " = " ++ show expr ++ ";"
     show (ForLoop ident iter body) = "for " ++ ident ++ " in " ++ show iter ++ " " ++ show body 
     show (Return e) = "return " ++ show e
     show (Scope stms) = foldl (\acc s -> acc ++ " " ++show s) "" stms
@@ -98,6 +107,7 @@ prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e
 prettyPrintStm (Scope stms) ="Scope\n" ++ stmHelper stms
 prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
 prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
+prettyPrintStm (VarInst str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
 prettyPrintStm (ForLoop ident iter body) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ prettyPrintExpr 4 [0] body
 prettyPrintStm (IfThenElse cond th el) = 
     "if\n\9500\9472 " ++ prettyPrintExpr 2 [0] cond 
@@ -152,4 +162,33 @@ prettyPrintExpr indent xs (FunCall fname args) =
 prettyPrintExpr _ _ (Closure stm) = 
     let start = "Closure : " ++ "\n" in 
     start ++ stmHelper [stm]
+
+prettyPrintExpr indent xs (ArrLit exps) = 
+    let start = "ArrLit : " ++ "\n" in 
+    let indents = makeIndents 0 xs in 
+    let restSpaces = makeSpaces indent xs in 
+    let l = indents ++ restSpaces ++ "\9500" ++  "\9472" in
+    let r = indents ++ restSpaces ++ "\9492" ++  "\9472" in
+    let argString = case Data.List.uncons exps  of 
+            Nothing -> "()"
+            Just (x, []) -> "\n" ++ r ++ prettyPrintExpr (indent + 1) xs x 
+            Just (x, restArgs) -> 
+                let end = r ++ prettyPrintExpr (indent + 1) xs x in
+                foldl (\acc arg -> let argStr = prettyPrintExpr (indent + 1) xs arg in 
+                                        l ++ argStr ++ acc
+                                        ) end restArgs  in
+    start ++ l ++ argString 
+
+prettyPrintExpr indent xs (ArrLookUp lhs rhs) =
+    let start = "ArrLookUp : " ++"\n" in
+    let indents = makeIndents 0 xs in 
+    let restSpaces = makeSpaces indent xs in
+    let l' = indents ++ restSpaces ++ "\9500" ++  "\9472" in
+    let r' = indents ++ restSpaces ++ "\9492" ++  "\9472" in
+    start ++ l' ++  prettyPrintExpr (indent + 1) (indent : xs) lhs 
+    ++ r' ++ prettyPrintExpr (indent + 2) xs rhs
+
+
+
+    
 

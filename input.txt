@@ -1,7 +1,5 @@
 main : Int
-    for i in 0..10 -> 
-        print (i * i)
-    <-
+    var list = [1, 2, 3, 4];
     return 1 
 
 

@@ -8,6 +8,7 @@ import Control.Monad.Writer
 import Data.Bifunctor (Bifunctor(bimap))
 import Data.Text (pack, splitOn, Text, takeWhile, head, unpack)
 import Data.Text.Internal.Fusion (Stream(Stream))
+import Control.Arrow (Arrow(arr))
 
 type Rule = [Atom]
 
@@ -436,7 +437,40 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
-         -- Double Equles 
+         ([T Literal, T Comma, V "ArrLit"], E e:_:Pt (StreamToken (_, I i)):rest) -> 
+            let newFargs = FunArgs $ [LitExp {lit= LI i}, e] 
+            in logStack (newFargs:rest) 3
+         ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt (StreamToken (_, I i)):rest) -> 
+            let newFargs = FunArgs $ LitExp {lit= LI i} : lits 
+            in logStack (newFargs:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
+            let arrLit = E $ ArrLit $ reverse lits
+            in logStack (arrLit:rest) 3
+         -- Var Instantiation
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+            let varInst = Ps $ VarInst ident rhs 
+            in logStack (varInst:rest) 5
+         -- Double EqualSign 
+         ([T Equal, T Equal], _:_:rest) -> 
+            logStack (O Eq:rest) 2
+         -- Closure 
+         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
+            let clos = E (Closure scope) in
+            logStack (clos:rest) 3
+         ([V "Exp", T Comma, V "ArrLit"], E e:_:E r:rest) -> 
+            let newFargs = FunArgs $ [e, r] 
+            in logStack (newFargs:rest) 3
+         ([V "Exp", T Comma, V "ArrLit"], E e:_:FunArgs lits:rest) -> 
+            let newFargs = FunArgs $ e:lits 
+            in logStack (newFargs:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
+            let arrLit = E $ ArrLit lits
+            in logStack (arrLit:rest) 3
+         -- Var Instantiation
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+            let varInst = Ps $ VarInst ident rhs 
+            in logStack (varInst:rest) 5
+         -- Double EqualSign 
          ([T Equal, T Equal], _:_:rest) -> 
             logStack (O Eq:rest) 2
          -- Closure 
@@ -580,9 +614,13 @@ parseAtom text
         "return" -> T Lexer.Return
         "(" -> T LeftParen 
         ")" -> T RightParen
+        "[" -> T LeftSqBracket 
+        "]" -> T RightSqBracket
         "let" -> T Let
         "in" -> T In
+        "var" -> T Var
         "=" -> T Equal 
+        ";" -> T SemiColon
         ":" -> T Colon
         "," -> T Comma
         "->" -> T RightArrow 

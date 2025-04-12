@@ -72,7 +72,7 @@ instance Show Line where
     show (Line (Just op) ins) = show op ++ " = " ++ show ins 
     show (Line Nothing ins) = show ins
 
-data Cfg = Cfg {blocks::[(String, Block)], insns :: [Line], currentBlock :: String}
+data Cfg = Cfg {blocks::[(String, Block)], insns :: [Line], allocas :: [Line], currentBlock :: String}
 instance Show Cfg where 
     show cfg = 
         let a = foldl (\acc b -> "\t" ++ show b ++ "\n" ++ acc ) "" 
@@ -90,7 +90,7 @@ startBlock str = BuildLet (\(cfg, env) -> (cfg {currentBlock = str}, env, Nop))
 endBlock :: BuildLet Operand 
 endBlock = 
     BuildLet (\(cfg, env) -> 
-        let newcfg = Cfg {blocks = (currentBlock cfg, insns cfg) : blocks cfg, insns = [] ,currentBlock = ""}
+        let newcfg = Cfg {blocks = (currentBlock cfg, insns cfg) : blocks cfg, allocas = allocas cfg, insns = [] ,currentBlock = ""}
         in (newcfg, env, Nop)
     )
 
@@ -114,7 +114,7 @@ idBuildlet :: BuildLet Operand
 idBuildlet = return Nop
 
 emptyCfg :: Cfg 
-emptyCfg = Cfg {blocks = [], insns = [], currentBlock = ""}
+emptyCfg = Cfg {blocks = [], insns = [], allocas = [], currentBlock = ""}
 
 data Env = Env {vars :: [(String, Operand)], uid :: Int}
 
@@ -168,9 +168,13 @@ freshVar ident = do
     return $ ident ++ show i
 
 addInstruction :: Maybe String -> Instruction -> BuildLet Operand 
+addInstruction (Just str) alloc@(Allocate _) = do
+    fresh <- freshVar str   
+    BuildLet (\(cfg, env) -> ((cfg {allocas = Line (Just (Var fresh)) alloc : allocas cfg}), env, Var fresh))
 addInstruction (Just str) ins = do
     fresh <- freshVar str   
     BuildLet (\(cfg, env) -> ((cfg {insns = Line (Just (Var fresh)) ins : insns cfg}), env, Var fresh))
+
 -- Case of no return op
 addInstruction _ ins = do 
     BuildLet (\(cfg, env) -> ((cfg {insns = Line Nothing ins : insns cfg}), env, Nop))
@@ -272,7 +276,7 @@ codegenExpr (FunCall callee args rtyp) = do
 
     addInstruction ret $ Call (tpConvert rtyp) ffn targs 
 codegenExpr (Range _ _ ) = error "TODO"
-codegenExpr (Closure _ _ ) = error "TODO"
+codegenExpr (Closure stm _ ) = codegenStm stm
 
 insertIntoEnv :: String -> Operand -> BuildLet Operand
 insertIntoEnv name op = 
@@ -358,6 +362,12 @@ storeArgs = foldr (\(name, typ) acc -> do
                 insertIntoEnv name store 
             ) idBuildlet 
 
+prependAllocs :: Cfg -> Cfg 
+prependAllocs cfg = 
+    let (name, b) = last $ blocks cfg in
+    let res = b ++ allocas cfg  in
+    cfg {blocks = init (blocks cfg) ++ [(name, res)]}
+
 codegenFunc :: Function -> FDecl
 codegenFunc fun = 
     let args = map (\(name, typ) -> (name, tpConvert typ)) $ params fun in
@@ -368,7 +378,7 @@ codegenFunc fun =
             _ <- codegenStm $ body fun
             endBlock 
     in let (cfg, _, _) = a (emptyCfg, emptyEnv) in
-    FD (funName fun) (FT typs (tpConvert (returnType fun))) args cfg 
+    FD (funName fun) (FT typs (tpConvert (returnType fun))) args (prependAllocs cfg) 
 
 
 codegenAst :: TypedAst -> String  

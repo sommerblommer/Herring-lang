@@ -14,6 +14,7 @@ data Token =
     | EOF
     | Let 
     | In
+    | Var
     | Literal 
     | Ident
     | Return
@@ -30,6 +31,8 @@ data Token =
     | For 
     | LeftArrow
     | Dot
+    | LeftSqBracket
+    | RightSqBracket
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
@@ -62,7 +65,7 @@ instance Monad Incrementer where
     Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
 
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n,.*"
+singleCharTokens = ":()=+- ;\n,.*[]"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
@@ -89,6 +92,8 @@ findToken '(' _ = return $ pure LeftParen
 findToken ')' _ = return $ pure RightParen  
 findToken '{' _ = return $ pure LeftBracket  
 findToken '}' _ = return $ pure RightBreacket  
+findToken '[' _ = return $ pure LeftSqBracket  
+findToken ']' _ = return $ pure RightSqBracket  
 findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
 findToken '*' _ = return $ pure Star
@@ -123,6 +128,7 @@ checkIdentForReserved (StreamToken (Ident, Str ">")) = pure Gt
 checkIdentForReserved (StreamToken (Ident, Str "-")) = pure Minus
 checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
 checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
+checkIdentForReserved (StreamToken (Ident, Str "var")) = pure Var
 checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
 checkIdentForReserved (StreamToken (Ident, Str "if")) = pure If
 checkIdentForReserved (StreamToken (Ident, Str "then")) = pure Then
