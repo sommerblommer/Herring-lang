@@ -5,16 +5,23 @@ import Lib (llvmStdLib)
 data LLtyp = I8 
     | I1 
     | I32
+    | Array Int LLtyp -- length and type aka [int x lltyp]
+    | Star LLtyp
+    | Ptr
     | Void
 instance Show LLtyp where 
     show I8 = "i8"
     show I1 = "i1"
     show I32 = "i32"
+    show Ptr  = "ptr " 
+    show (Star t) = show t ++ "*"
+    show (Array i t) = "[" ++ show i ++ " x " ++ show t ++ "]"
     show LlvmCodeGen.Void = "void"
 
 tpConvert :: Typ -> LLtyp 
 tpConvert IntType = I32
 tpConvert BoolType = I1
+tpConvert (Pointer t) = Ptr
 tpConvert StringType = error "TODO" 
 tpConvert TypedAst.Void = LlvmCodeGen.Void 
 tpConvert (FunType _) = error "TODO" 
@@ -46,11 +53,12 @@ data Instruction =
     | Return LLtyp (Maybe Operand)
     | Br String 
     | Cbr Operand String String 
+    | Gep LLtyp [(LLtyp, Operand)]
 instance Show Instruction where 
     show (LlvmCodeGen.Return typ mop) = 
         let expstr = maybe "" show mop
         in "ret " ++ show typ ++ " " ++ expstr
-    show (Store typ op1 op2) = "store " ++ show typ ++ " " ++ show op1 ++ ", ptr " ++ show op2  
+    show (Store typ op1 op2) = "store " ++ show typ ++ " " ++ show op1 ++ ", ptr " ++ show op2 
     show (Load typ op ) = "load " ++ show typ ++ ", ptr " ++ show op  
     show (Allocate typ) = "alloca " ++ show typ
     show (Call rtyp fname args ) = "call " ++ show rtyp ++ " @" ++ fname ++ "(" ++ argPrinter args ++ ")"
@@ -62,7 +70,7 @@ instance Show Instruction where
     show (Icmp bop typ op1 op2 ) = "icmp " ++ show bop ++ " " ++ show typ ++ " "++ show op1 ++ ", " ++ show op2
     show (Br label) = "br label %" ++ label
     show (Cbr op branch1 branch2) = "br i1 " ++ show op ++ ", label %" ++ branch1 ++ ", label %" ++ branch2  
- 
+    show (Gep retType args) = "getelementptr " ++ show retType ++ foldr (\(typ, op) acc -> ", " ++ show typ ++ " " ++ show op ++ acc) "" args
 
 
 type Block = [Line]
@@ -199,6 +207,7 @@ typeOfExpr (Literal {tLit=lit}) =
 typeOfExpr (FunCall _ _ t) = tpConvert t
 typeOfExpr (Range _ _ ) = error "TODO, what type is a range?"
 typeOfExpr (Closure _ t) = tpConvert t
+typeOfExpr (ArrLit _ t) = tpConvert t
 
 
 getEnv :: BuildLet Env 
@@ -275,8 +284,24 @@ codegenExpr (FunCall callee args rtyp) = do
     let (ret, ffn) = handle_externals fn (map fst targs) (tpConvert rtyp) 
 
     addInstruction ret $ Call (tpConvert rtyp) ffn targs 
+
 codegenExpr (Range _ _ ) = error "TODO"
+
 codegenExpr (Closure stm _ ) = codegenStm stm
+
+codegenExpr (ArrLit lits typ) = do 
+    let t = tpConvert typ
+    let arType = Array (length lits) t
+    alloc <- addInstruction (Just "alloc") $ Allocate arType
+    _ <- fst $ foldl(\(acc, iter) l -> 
+                    let code = do 
+                            cl <- codegenExpr l 
+                            gep <- addInstruction (Just "gep") $ Gep arType [(Ptr, alloc), (I32, Lit 0), (I32, Lit iter)] 
+                            addInstruction Nothing $ Store I32 cl gep 
+                    in (acc >> code, iter + 1)
+                ) (idBuildlet, 0) lits
+    BuildLet (\(c, e) -> (c, e, alloc))
+    
 
 insertIntoEnv :: String -> Operand -> BuildLet Operand
 insertIntoEnv name op = 

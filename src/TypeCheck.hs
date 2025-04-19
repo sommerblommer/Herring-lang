@@ -92,6 +92,13 @@ typeCheckExpr env (Ast.Closure stm) =
     let (typedStm, _) = typeCheckStm env  stm  in
     (TAST.Closure typedStm IntType, IntType)
 
+typeCheckExpr env (Ast.ArrLit lits) = 
+    let (texps, typs) = unzip $ Prelude.foldl (\acc lit -> typeCheckExpr env lit : acc) [] lits 
+    in let fall = all (\t -> t == head typs) typs
+    in if fall 
+        then (TAST.ArrLit texps (head typs), Pointer $ head typs)
+        else error "types in array literal are not the same"
+
 
 
 
@@ -133,6 +140,11 @@ typeCheckStm env (Ast.IfThenElse cond th el) =
     let (thexp, _) = typeCheckExpr env th in 
     let (elexp, _) = typeCheckExpr env el in 
     (TAST.IfThenElse tcnd thexp elexp, env)
+
+typeCheckStm env (Ast.VarInst varIdent bd) = 
+    let (texpr, exprtype) = typeCheckExpr env bd in
+    let newenv = insertIntoEnv varIdent exprtype env in 
+    (TAST.LetIn varIdent texpr exprtype, newenv)
 
 typeCheckFunction :: Env ->  Ast.Function -> (TAST.Function, Env)
 typeCheckFunction env func = 

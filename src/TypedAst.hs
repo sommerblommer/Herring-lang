@@ -21,6 +21,7 @@ data Typ =
     | StringType 
     | Void 
     | FunType (String, [Typ]) -- Name of function and it's type
+    | Pointer Typ
     deriving (Eq)
 
 instance Show Typ where 
@@ -51,6 +52,7 @@ data Expr =
     | FunCall Expr [Expr] Typ
     | Range Expr Expr
     | Closure Stm Typ 
+    | ArrLit [Expr] Typ
 
 data Stm = 
     LetIn String Expr Typ
