@@ -28,7 +28,7 @@ Exp => Term
 Exp => Exp . . Term
 Exp => ( Scope )
 Exp => [ ArrLit ]
-Exp => Term [ Exp ]
+Exp => Exp [ Exp ]
 
 Fparams => Exp , Fparams 
 Fparams => Exp

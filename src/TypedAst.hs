@@ -53,6 +53,7 @@ data Expr =
     | Range Expr Expr
     | Closure Stm Typ 
     | ArrLit [Expr] Typ
+    | ArrLookUp Expr Expr Typ
 
 data Stm = 
     LetIn String Expr Typ

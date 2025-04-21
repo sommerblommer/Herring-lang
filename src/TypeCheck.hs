@@ -99,6 +99,8 @@ typeCheckExpr env (Ast.ArrLit lits) =
         then (TAST.ArrLit texps (head typs), Pointer $ head typs)
         else error "types in array literal are not the same"
 
+typeCheckExpr env (Ast.ArrLookUp arr lup) = 
+    error "lookup not implemented"
 
 
 

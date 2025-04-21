@@ -437,8 +437,11 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         ([V "Exp", T LeftSqBracket, V "Exp", T RightSqBracket], _:E lup:_:E lhs:rest) -> 
+            let arrLup = E $ ArrLookUp lhs lup 
+            in logStack (arrLup:rest) 4
          ([T Literal, T Comma, V "ArrLit"], E e:_:Pt (StreamToken (_, I i)):rest) -> 
-            let newFargs = FunArgs $ [LitExp {lit= LI i}, e] 
+            let newFargs = FunArgs [LitExp {lit= LI i}, e] 
             in logStack (newFargs:rest) 3
          ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt (StreamToken (_, I i)):rest) -> 
             let newFargs = FunArgs $ LitExp {lit= LI i} : lits 

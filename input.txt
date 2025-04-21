@@ -1,5 +1,8 @@
 main : Int
     var list = [1, 2, 3, 4];
+    for i in 0..4 -> 
+        print (list[i])
+    <-
     return 1 
 
 
