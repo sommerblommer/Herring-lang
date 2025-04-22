@@ -52,6 +52,8 @@ getTypeOfExpr _ (TAST.BinOp _ _ _ t) = t
 getTypeOfExpr _ (TAST.FunCall _ _ t) = t
 getTypeOfExpr _ (TAST.Closure  _ t) = t
 getTypeOfExpr _ (TAST.Range  _ _) = IntType
+getTypeOfExpr _ (TAST.ArrLookUp _ _ t) = t
+getTypeOfExpr _ (TAST.ArrLit _ t) = t
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
 typeCheckExpr _ LitExp {lit = LI i} = (TAST.Literal {tLit = TLI i}, IntType)
@@ -100,16 +102,29 @@ typeCheckExpr env (Ast.ArrLit lits) =
         else error "types in array literal are not the same"
 
 typeCheckExpr env (Ast.ArrLookUp arr lup) = 
-    error "lookup not implemented"
+    let foo (Pointer t) = t 
+        foo _ = error "not a pointer"
+    in
+    let tlup = assertType env lup IntType 
+    in let (lexpr, lt) = typeCheckExpr env arr 
+    in (TAST.ArrLookUp lexpr tlup (foo lt), foo lt)
 
 
 
 
 
 assertType :: Env -> Ast.Expr -> TAST.Typ -> TAST.Expr 
-assertType env exp typ = 
-    let (texp, exptyp) = typeCheckExpr env exp in 
+assertType env expr (Pointer _) = 
+    let (texp, exptyp) = typeCheckExpr env expr in 
+    case exptyp of 
+        (Pointer _) -> texp 
+        _ -> error "wrong type"
+assertType env expr typ = 
+    let (texp, exptyp) = typeCheckExpr env expr in 
     if exptyp == typ then texp else error "wrong type"
+
+
+
 
 typeCheckStm :: Env -> Ast.Stm -> (TAST.Stm, Env)
 typeCheckStm env (Ast.ForLoop ident iter body) = 

@@ -208,6 +208,7 @@ typeOfExpr (FunCall _ _ t) = tpConvert t
 typeOfExpr (Range _ _ ) = error "TODO, what type is a range?"
 typeOfExpr (Closure _ t) = tpConvert t
 typeOfExpr (ArrLit _ t) = tpConvert t
+typeOfExpr (ArrLookUp _ _ t) = tpConvert t
 
 
 getEnv :: BuildLet Env 
@@ -302,6 +303,13 @@ codegenExpr (ArrLit lits typ) = do
                 ) (idBuildlet, 0) lits
     BuildLet (\(c, e) -> (c, e, alloc))
     
+
+codegenExpr (ArrLookUp p lup t) = do 
+    let typ = tpConvert t  
+    ptr <- codegenExpr p 
+    lp <- codegenExpr lup 
+    gep <- addInstruction (Just "gep") $ Gep (Array 0 typ) [(Ptr, ptr), (I32, Lit 0), (I32, lp)] 
+    addInstruction (Just "load") $ Load typ gep 
 
 insertIntoEnv :: String -> Operand -> BuildLet Operand
 insertIntoEnv name op = 

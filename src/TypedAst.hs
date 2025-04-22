@@ -29,6 +29,7 @@ instance Show Typ where
     show BoolType = "Bool"
     show StringType = "String"
     show Void = "Void"
+    show (Pointer p) = "ptr " ++ show p
     show (FunType (name, typs)) = 
         name ++ helper typs 
         where 
