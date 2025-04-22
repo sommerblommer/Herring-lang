@@ -1,9 +1,10 @@
 module Lib
-    ( stdLib
+    ( stdLib, 
+      llvmStdLib
     ) where
 
 stdLib :: String
-stdLib = "_print: \
+stdLib = "\n_print: \
           \ \n\tstr LR, [SP, -16]!\
           \ \n\tmov X1, X0 \
           \ \n\tadrp X0, num@PAGE \ 
@@ -12,4 +13,8 @@ stdLib = "_print: \
           \ \n\tbl _printf \ 
           \ \n\tadd SP, SP, 32 \ 
           \ \n\tldr LR, [SP], 16 \ 
-          \ \n\tret"
+          \ \n\tret" 
+
+
+llvmStdLib :: String 
+llvmStdLib = "\ndeclare void @print_integer(i32)\ndeclare i32 @read_integer()\n"

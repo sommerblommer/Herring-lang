@@ -16,18 +16,34 @@ Scope => Stm
 
 Stm => let ident = Exp in
 Stm => return Exp
+Stm => if Exp then Exp else Exp
+Stm => for ident in Exp -> Exp <- 
+Stm => var ident = Exp ; 
 
 
 Exp => Exp ( Fparams )
+Exp => Exp ( )
 Exp => Exp Op Term 
 Exp => Term 
+Exp => Exp . . Term
+Exp => ( Scope )
+Exp => [ ArrLit ]
+Exp => Exp [ Exp ]
 
 Fparams => Exp , Fparams 
 Fparams => Exp
 
+ArrLit => literal , ArrLit 
+ArrLit => literal
+
 Op => plus 
 Op => minus 
 Op => mult
+Op => lt 
+Op => lte 
+Op => gt 
+Op => gte
+Op => eq eq
 
 Term => ( Exp ) 
 Term => literal 

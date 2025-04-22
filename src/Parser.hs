@@ -8,6 +8,7 @@ import Control.Monad.Writer
 import Data.Bifunctor (Bifunctor(bimap))
 import Data.Text (pack, splitOn, Text, takeWhile, head, unpack)
 import Data.Text.Internal.Fusion (Stream(Stream))
+import Control.Arrow (Arrow(arr))
 
 type Rule = [Atom]
 
@@ -195,7 +196,7 @@ closureR g p
             V var -> 
                 let tlup = g Dm.!? var in
                 case tlup of
-                Nothing -> error $ "Non-Term " ++ show var ++ " has no rules"
+                Nothing -> error $ "Non-Term " ++ show var ++ " has no rules (maybe you misspelled?)"
                 Just lup -> 
                     let fset = 
                             if length (rule p) > (pos p + 1) then
@@ -436,6 +437,66 @@ accumulateArgs _ e = error $ show e ++ "kfds????"
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         ([V "Exp", T LeftSqBracket, V "Exp", T RightSqBracket], _:E lup:_:E lhs:rest) -> 
+            let arrLup = E $ ArrLookUp lhs lup 
+            in logStack (arrLup:rest) 4
+         ([T Literal, T Comma, V "ArrLit"], E e:_:Pt (StreamToken (_, I i)):rest) -> 
+            let newFargs = FunArgs [LitExp {lit= LI i}, e] 
+            in logStack (newFargs:rest) 3
+         ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt (StreamToken (_, I i)):rest) -> 
+            let newFargs = FunArgs $ LitExp {lit= LI i} : lits 
+            in logStack (newFargs:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
+            let arrLit = E $ ArrLit $ reverse lits
+            in logStack (arrLit:rest) 3
+         -- Var Instantiation
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+            let varInst = Ps $ VarInst ident rhs 
+            in logStack (varInst:rest) 5
+         -- Double EqualSign 
+         ([T Equal, T Equal], _:_:rest) -> 
+            logStack (O Eq:rest) 2
+         -- Closure 
+         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
+            let clos = E (Closure scope) in
+            logStack (clos:rest) 3
+         ([V "Exp", T Comma, V "ArrLit"], E e:_:E r:rest) -> 
+            let newFargs = FunArgs $ [e, r] 
+            in logStack (newFargs:rest) 3
+         ([V "Exp", T Comma, V "ArrLit"], E e:_:FunArgs lits:rest) -> 
+            let newFargs = FunArgs $ e:lits 
+            in logStack (newFargs:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
+            let arrLit = E $ ArrLit lits
+            in logStack (arrLit:rest) 3
+         -- Var Instantiation
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+            let varInst = Ps $ VarInst ident rhs 
+            in logStack (varInst:rest) 5
+         -- Double EqualSign 
+         ([T Equal, T Equal], _:_:rest) -> 
+            logStack (O Eq:rest) 2
+         -- Closure 
+         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
+            let clos = E (Closure scope) in
+            logStack (clos:rest) 3
+         -- range
+         ([V "Exp", T Dot, T Dot, V "Term"], E r:_:_:E l:rest) -> 
+            let range = E (Range l r) in
+            logStack (range:rest) 4
+         -- for-loops
+         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Exp", T LeftArrow], _:E body:_:E iter:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+            let floop = Ps (ForLoop ident iter body) in
+            logStack (floop:rest) 7
+         -- if-then-else statement
+
+         ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el : _ : E thn : _ : E condition : _ : rest) -> 
+            let funcall = Ps (IfThenElse condition thn el) in
+            logStack (funcall:rest) 6
+         -- fun call with no args
+         ([V "Exp", T LeftParen, T RightParen], _: _ : E exp : rest) -> 
+            let funcall = E (FunCall exp []) in
+            logStack (funcall:rest) 3
          ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg : _ : E exp : rest) -> 
             let funcall = E (FunCall exp [arg]) in
             logStack (funcall:rest) 4
@@ -500,6 +561,16 @@ ruleFuncs input stack =
             logStack (Ps (Ast.Return e):rest) 2
          ([T Lexer.Minus] ,Pt _:rest) ->   
             logStack (O Ast.Minus:rest) 1
+         ([T Lexer.Lt] ,Pt _:rest) ->   
+            logStack (O Ast.Lt:rest) 1
+         ([T Lexer.Lte] ,Pt _:rest) ->   
+            logStack (O Ast.Lte:rest) 1
+         ([T Lexer.Gt] ,Pt _:rest) ->   
+            logStack (O Ast.Gt:rest) 1
+         ([T Lexer.Gte] ,Pt _:rest) ->   
+            logStack (O Ast.Gte:rest) 1
+         ([T Lexer.Gte] ,Pt _:rest) ->   
+            logStack (O Ast.Eq:rest) 1
          ([T Lexer.Ident] ,Pt ide:rest) ->  case ide of 
             StreamToken (_, Str str) -> 
                 logStack (E IExp {ident=str}:rest) 1
@@ -536,6 +607,9 @@ parseAtom text
         V (unpack text)
     | otherwise = case unpack text of 
         "literal" -> T Literal 
+        "if" -> T If
+        "then" -> T Then 
+        "else" -> T Else
         "ident" -> T Ident 
         "plus" -> T Lexer.Plus 
         "minus" -> T Lexer.Minus
@@ -543,11 +617,23 @@ parseAtom text
         "return" -> T Lexer.Return
         "(" -> T LeftParen 
         ")" -> T RightParen
+        "[" -> T LeftSqBracket 
+        "]" -> T RightSqBracket
         "let" -> T Let
         "in" -> T In
+        "var" -> T Var
         "=" -> T Equal 
+        ";" -> T SemiColon
         ":" -> T Colon
         "," -> T Comma
         "->" -> T RightArrow 
+        "<-" -> T LeftArrow
+        "lt" -> T Lexer.Lt
+        "lte" -> T Lexer.Lte
+        "gt" -> T Lexer.Gt
+        "gte" -> T Lexer.Gte
+        "eq" -> T Lexer.Equal
+        "for" -> T For
+        "." -> T Dot
         e -> error $ "mising data types to parse to for: " ++ e
     
