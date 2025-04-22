@@ -1,29 +1,68 @@
 module TypedAst where 
 import Data.List (uncons) 
+import GHC.RTS.Flags (ProfFlags(heapProfileInterval))
 
 predefinedFunctions :: [Function]
-predefinedFunctions = [Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}]
+predefinedFunctions = 
+    [   
+        Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}
+    ,   Function {funName ="read", params=[], body = Scope [], returnType = IntType}
+    ]
+predefinedFunctions2 :: [Typ] 
+predefinedFunctions2 = 
+    [
+        FunType ("print", [IntType, Void])
+    ,   FunType ("read", [Void, IntType])
+    ]
 
-data Typ = IntType | BoolType | StringType
-    deriving (Eq, Show)
+data Typ = 
+      IntType 
+    | BoolType 
+    | StringType 
+    | Void 
+    | FunType (String, [Typ]) -- Name of function and it's type
+    | Pointer Typ
+    deriving (Eq)
+
+instance Show Typ where 
+    show IntType = "Int"
+    show BoolType = "Bool"
+    show StringType = "String"
+    show Void = "Void"
+    show (Pointer p) = "ptr " ++ show p
+    show (FunType (name, typs)) = 
+        name ++ helper typs 
+        where 
+        helper :: [Typ] -> String 
+        helper [] = ""
+        helper [x] = show x
+        helper (x:xs) = show x ++ "->" ++ helper xs
+
+
 
 data Lit = TLI Int | TLB Bool
     deriving (Show)
 
-data Op = Plus | Minus | Mult
+data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte | Eq
     deriving (Show)
 
 data Expr = 
     Literal {tLit :: Lit} 
-    | Ident String 
+    | Ident String Typ 
     | BinOp Expr Op Expr Typ
     | FunCall Expr [Expr] Typ
+    | Range Expr Expr
+    | Closure Stm Typ 
+    | ArrLit [Expr] Typ
+    | ArrLookUp Expr Expr Typ
 
 data Stm = 
     LetIn String Expr Typ
     | Scope [Stm] 
     | Return Expr Typ
     | StmExpr Expr Typ
+    | IfThenElse Expr Expr Expr
+    | ForLoop String Expr Expr Typ
 
 data Function = Function {funName :: String, params :: [(String, Typ)], body :: Stm, returnType :: Typ}
 
@@ -31,7 +70,7 @@ type TypedAst = [Function]
 
 
 instance Show Expr where 
-    show (Ident s) = s 
+    show (Ident s _ ) = s 
     show (Literal {tLit=TLI i}) =  show i
     show (Literal {tLit=TLB i}) =  show i
     show (BinOp l o r t) = "(" ++ show l ++ show o ++ show r ++ ") : " ++ show t
@@ -81,7 +120,7 @@ makeSpaces a xs = replicate (a - head xs) ' '
 prettyPrintExpr :: Int -> [Int] -> Expr -> String
 prettyPrintExpr _ _ Literal {tLit=TLI l} = "Literal " ++ show l ++ "\n"
 prettyPrintExpr _ _ Literal {tLit=TLB l} = "Literal " ++ show l ++ "\n"
-prettyPrintExpr _ _  (Ident ide) = "ident " ++ ide ++ "\n"
+prettyPrintExpr _ _  (Ident ide _) = "ident " ++ ide ++ "\n"
 prettyPrintExpr indent xs  (BinOp l o r t) = 
     let start = "BinOp : " ++ show o ++" -> " ++ show t ++ "\n" in
     let indents = makeIndents 0 xs in 

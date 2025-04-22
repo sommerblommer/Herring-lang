@@ -1,11 +1,9 @@
 main : Int
-    let y = 42 in
-    let _ = print (y + 5) in
-    return 1
-
-
-
-    
+    var list = [1, 2, 3, 4];
+    for i in 0..4 -> 
+        print (list[i])
+    <-
+    return 1 
 
 
 
