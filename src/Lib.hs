@@ -17,4 +17,4 @@ stdLib = "\n_print: \
 
 
 llvmStdLib :: String 
-llvmStdLib = "\ndeclare void @print_integer(i32)\ndeclare i32 @read_integer()\n"
+llvmStdLib = "\ndeclare void @print_integer(i32)\ndeclare i32 @read_integer()\n%struct.list = type { i32, [0 x i32] }\n" -- the list struct should be removed when types are implemented

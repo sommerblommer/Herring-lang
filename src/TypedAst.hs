@@ -7,12 +7,14 @@ predefinedFunctions =
     [   
         Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}
     ,   Function {funName ="read", params=[], body = Scope [], returnType = IntType}
+    ,   Function {funName ="length", params=[("x", IntType)], body = Scope [], returnType = IntType}
     ]
 predefinedFunctions2 :: [Typ] 
 predefinedFunctions2 = 
     [
         FunType ("print", [IntType, Void])
     ,   FunType ("read", [Void, IntType])
+    ,   FunType ("length", [Pointer IntType, IntType])
     ]
 
 data Typ = 
@@ -55,6 +57,7 @@ data Expr =
     | Closure Stm Typ 
     | ArrLit [Expr] Typ
     | ArrLookUp Expr Expr Typ
+    | Length Expr Typ
 
 data Stm = 
     LetIn String Expr Typ

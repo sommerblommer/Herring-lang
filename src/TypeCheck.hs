@@ -53,6 +53,7 @@ getTypeOfExpr _ (TAST.FunCall _ _ t) = t
 getTypeOfExpr _ (TAST.Closure  _ t) = t
 getTypeOfExpr _ (TAST.Range  _ _) = IntType
 getTypeOfExpr _ (TAST.ArrLookUp _ _ t) = t
+getTypeOfExpr _ (TAST.Length _ t) = t
 getTypeOfExpr _ (TAST.ArrLit _ t) = t
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
@@ -82,8 +83,9 @@ typeCheckExpr env (Ast.FunCall fvar args) =
                     typeArg else error $ show fvar ++ " is called with wrong types\nExpected type: " ++ show paramTyps ++ "\nActual Type: " ++ show typ 
             ) $ zip args paramTyps
     in
-    let rType = last paramTyps in
-    (TAST.FunCall (Ident fname rType) typedArgs rType, rType) 
+    let rType = last paramTyps in 
+    if fname == "length" then (TAST.Length (head typedArgs) rType, rType)
+    else (TAST.FunCall (Ident fname rType) typedArgs rType, rType) 
 
 typeCheckExpr env (Ast.Range start end) = 
     let tstart = assertType env start TAST.IntType in

@@ -2,13 +2,17 @@ module LlvmCodeGen (codegenAst) where
 import TypedAst
 import Lib (llvmStdLib)
 
+
 data LLtyp = I8 
     | I1 
     | I32
     | Array Int LLtyp -- length and type aka [int x lltyp]
+    | Struct String
     | Star LLtyp
     | Ptr
     | Void
+
+
 instance Show LLtyp where 
     show I8 = "i8"
     show I1 = "i1"
@@ -16,6 +20,7 @@ instance Show LLtyp where
     show Ptr  = "ptr " 
     show (Star t) = show t ++ "*"
     show (Array i t) = "[" ++ show i ++ " x " ++ show t ++ "]"
+    show (Struct name) = "%struct." ++ name
     show LlvmCodeGen.Void = "void"
 
 tpConvert :: Typ -> LLtyp 
@@ -102,6 +107,13 @@ endBlock =
         in (newcfg, env, Nop)
     )
 
+data TDecl = TD String [LLtyp]
+instance Show TDecl where 
+    show  (TD name typs) = "%struct." ++ name ++ " = type { " ++ helper typs ++ " }" 
+        where 
+            helper [] = "" 
+            helper [x] = show x 
+            helper (x:xs) = show x ++ ", " ++ helper xs
 data FType = FT [LLtyp] LLtyp
     deriving (Show)
 data FDecl = FD String FType [(String, LLtyp)] Cfg 
@@ -114,7 +126,7 @@ instance Show FDecl where
         helper [(n, t)] = show t ++ "%" ++ n 
         helper ((name, typ):xs) = show typ ++ " %" ++ name ++ ", " ++ helper xs 
 
-newtype Program = Program {fdecls :: [FDecl]}
+data Program = Program {fdecls :: [FDecl], tdecls :: [TDecl]}
 instance Show Program where 
     show p = foldl (\acc a -> show a ++ acc) "" $ fdecls p 
 
@@ -209,6 +221,7 @@ typeOfExpr (Range _ _ ) = error "TODO, what type is a range?"
 typeOfExpr (Closure _ t) = tpConvert t
 typeOfExpr (ArrLit _ t) = tpConvert t
 typeOfExpr (ArrLookUp _ _ t) = tpConvert t
+typeOfExpr (Length _ t) = tpConvert t
 
 
 getEnv :: BuildLet Env 
@@ -301,6 +314,7 @@ codegenExpr (ArrLit lits typ) = do
                             addInstruction Nothing $ Store I32 cl gep 
                     in (acc >> code, iter + 1)
                 ) (idBuildlet, 0) lits
+
     BuildLet (\(c, e) -> (c, e, alloc))
     
 
@@ -310,6 +324,12 @@ codegenExpr (ArrLookUp p lup t) = do
     lp <- codegenExpr lup 
     gep <- addInstruction (Just "gep") $ Gep (Array 0 typ) [(Ptr, ptr), (I32, Lit 0), (I32, lp)] 
     addInstruction (Just "load") $ Load typ gep 
+
+codegenExpr (Length arg typ) = do
+    let t = typeOfExpr arg
+    a <- codegenExpr arg
+    gep <- addInstruction (Just "lengthGep") $ Gep (Struct "list") [(t, a), (I32, Lit 0), (I32, Lit 0)]
+    addInstruction (Just "length") $ Load I32 gep
 
 insertIntoEnv :: String -> Operand -> BuildLet Operand
 insertIntoEnv name op = 
@@ -413,9 +433,8 @@ codegenFunc fun =
     in let (cfg, _, _) = a (emptyCfg, emptyEnv) in
     FD (funName fun) (FT typs (tpConvert (returnType fun))) args (prependAllocs cfg) 
 
-
 codegenAst :: TypedAst -> String  
 codegenAst tast = 
     let fds = map codegenFunc tast in 
-    let prog = Program {fdecls=fds} in 
+    let prog = Program {fdecls=fds, tdecls = []} in 
     llvmStdLib ++ show prog

@@ -1,9 +1,7 @@
 main : Int
-    var list = [1, 2, 3, 4];
-    for i in 0..4 -> 
-        print (list[i])
-    <-
-    return 1 
+    let list = [1, 2, 3, 4] 
+    in let _ = print(length(list))
+    in return 1 
 
 
 
