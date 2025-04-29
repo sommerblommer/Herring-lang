@@ -1,7 +1,5 @@
 main : Int
-    let list = [1, 2, 3, 4] 
-    in let _ = print(length(list))
-    in return 1 
+    return 1 
 
 
 

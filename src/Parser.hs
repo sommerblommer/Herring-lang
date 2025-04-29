@@ -315,14 +315,15 @@ data Action = Accept | Shift | Reduce
 
 parse :: [StreamToken Token] -> IO Ast 
 parse tokens = do 
-    g <- readFile "grammar.txt"
+    g <- readFile "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/grammar.txt"
     let grammar = parseGrammar g 
-    print grammar
+    -- print grammar
     let initialState = initialClosure grammar startPosition 
     let t =  transitionClosure grammar . transition grammar . mergeClosures $ initialState 
-    print $ length t
+    -- print $ length t
     let (actions, log)  = runWriter $ action grammar [initialState] [] tokens 
-    Prelude.foldr ((>>) . putStrLn) (putStrLn "") log
+    -- Need to implement a verbose flag
+    -- Prelude.foldr ((>>) . putStrLn) (putStrLn "") log
     return $ lastParse actions
 
 
