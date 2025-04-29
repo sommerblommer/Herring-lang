@@ -12,15 +12,15 @@ main :: IO ()
 main = do  
     args <- getArgs 
     file <- handleArgs args
-    -- print $ lexicalAnalysis file
+    --print $ lexicalAnalysis file
     parsed <- parse $ lexicalAnalysis file
-    -- putStrLn $ prettyPrintAst parsed 
-    -- putStrLn $ replicate 40 '*'
+    --putStrLn $ prettyPrintAst parsed 
+    --putStrLn $ replicate 40 '*'
     let typedAst = typeCheckAst parsed 
     --putStrLn $ prettyPrintTypedAst typedAst
-    -- putStrLn "code: "
+    --putStrLn "code: "
     let compiled = codegenAst  typedAst
-    -- putStrLn compiled 
+    --putStrLn compiled 
     writeFile "output.ll" compiled
     callProcess "clang" ["-O0", "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/app/stdlib.c", "output.ll"]
     callProcess "./a.out" []

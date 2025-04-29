@@ -1,6 +1,2 @@
 main : Int
-    return 1 
-
-
-
-
+    return 0

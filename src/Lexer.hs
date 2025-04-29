@@ -109,6 +109,7 @@ findToken '<' (x:y:ys)
     | otherwise = checkIdentForReserved <$> findIdent "" '<' (x:y:ys) 
 findToken '\n' (x:xs) = return ' ' >> findToken x xs
 findToken '\n' [] = return $ pure EOF
+findToken '\t' (x:xs) = return ' ' >> findToken x xs
 findToken ' ' (x:xs) = return ' ' >> findToken x xs
 findToken c xs 
     | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs
