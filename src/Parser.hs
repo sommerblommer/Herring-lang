@@ -313,8 +313,8 @@ find s rs g =
 data Action = Accept | Shift | Reduce
     deriving (Show)
 
-parse :: [StreamToken Token] -> IO Ast 
-parse tokens = do 
+parse :: Bool -> [StreamToken Token] -> IO Ast 
+parse v tokens = do 
     g <- readFile "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/grammar.txt"
     let grammar = parseGrammar g 
     -- print grammar
@@ -323,7 +323,8 @@ parse tokens = do
     -- print $ length t
     let (actions, log)  = runWriter $ action grammar [initialState] [] tokens 
     -- Need to implement a verbose flag
-    -- Prelude.foldr ((>>) . putStrLn) (putStrLn "") log
+    _ <- if v then Prelude.foldr ((>>) . putStrLn) (putStrLn "") log
+            else return ()
     return $ lastParse actions
 
 
@@ -554,6 +555,8 @@ ruleFuncs input stack =
             logStack (Ps e:rest) 1
          ([V "Stm"], [Ps e]) -> 
             logStack [Ps e] 1
+         ([T Lexer.Slash] ,Pt _:rest) ->   
+            logStack (O Ast.Div:rest) 1
          ([T Lexer.Plus] ,Pt _:rest) ->   
             logStack (O Ast.Plus:rest) 1
          ([T Lexer.Star] ,Pt _:rest) ->   
@@ -615,6 +618,7 @@ parseAtom text
         "plus" -> T Lexer.Plus 
         "minus" -> T Lexer.Minus
         "mult" -> T Lexer.Star
+        "slash" -> T Lexer.Slash
         "return" -> T Lexer.Return
         "(" -> T LeftParen 
         ")" -> T RightParen

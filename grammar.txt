@@ -39,6 +39,7 @@ ArrLit => literal
 Op => plus 
 Op => minus 
 Op => mult
+Op => slash
 Op => lt 
 Op => lte 
 Op => gt 

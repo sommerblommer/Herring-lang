@@ -9,6 +9,7 @@ data Token =
     | Equal
     | Plus
     | Minus 
+    | Slash
     | Star 
     | SemiColon
     | EOF
@@ -65,7 +66,7 @@ instance Monad Incrementer where
     Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
 
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n,.*[]"
+singleCharTokens = ":()=+- ;\n,.*[]/"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
@@ -97,6 +98,8 @@ findToken ']' _ = return $ pure RightSqBracket
 findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
 findToken '*' _ = return $ pure Star
+findToken '-' _ = return $ pure Minus
+findToken '/' _ = return $ pure Slash
 findToken ':' _ = return $ pure Colon
 findToken '.' _ = return $ pure Dot
 findToken '>' (x:y:ys) 

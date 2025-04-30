@@ -45,7 +45,7 @@ instance Show Typ where
 data Lit = TLI Int | TLB Bool
     deriving (Show)
 
-data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte | Eq
+data Op = Plus | Minus | Mult | Div | Lt | Lte | Gt | Gte | Eq
     deriving (Show)
 
 data Expr = 

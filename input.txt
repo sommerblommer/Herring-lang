@@ -1,2 +1,1 @@
-main : Int
-    return 0
+main : Int let _ = print(33770/98919) in return 0

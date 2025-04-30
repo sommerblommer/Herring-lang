@@ -11,22 +11,27 @@ import System.Process
 main :: IO ()
 main = do  
     args <- getArgs 
-    file <- handleArgs args
-    --print $ lexicalAnalysis file
-    parsed <- parse $ lexicalAnalysis file
-    --putStrLn $ prettyPrintAst parsed 
-    --putStrLn $ replicate 40 '*'
+    (file, verb) <- handleArgs args
+    print $ lexicalAnalysis file
+    parsed <- parse verb $ lexicalAnalysis file
     let typedAst = typeCheckAst parsed 
-    --putStrLn $ prettyPrintTypedAst typedAst
-    --putStrLn "code: "
     let compiled = codegenAst  typedAst
-    --putStrLn compiled 
+    _ <- if verb then do
+            putStrLn $ prettyPrintAst parsed 
+            putStrLn $ replicate 40 '*'
+            putStrLn compiled 
+            else return ()
     writeFile "output.ll" compiled
     callProcess "clang" ["-O0", "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/app/stdlib.c", "output.ll"]
     callProcess "./a.out" []
 
-handleArgs :: [String] -> IO String
-handleArgs (filePath:_) = readFile filePath
+handleArgs :: [String] -> IO (String, Bool)
+handleArgs (filePath:"verbose":_) = do 
+    f <- readFile filePath
+    return (f, True)
+handleArgs (filePath:_) = do
+    f <- readFile filePath
+    return (f, False)
 handleArgs _ = error "only one argument implemented"
 
     

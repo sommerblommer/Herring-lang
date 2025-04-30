@@ -31,12 +31,12 @@ tpConvert StringType = error "TODO"
 tpConvert TypedAst.Void = LlvmCodeGen.Void 
 tpConvert (FunType _) = error "TODO" 
 
-data Bop = Add | Sub | Mul | Div | Eqll | Ltll | Ltell | Gtell | Gtll 
+data Bop = Add | Sub | Mul | LLDiv | Eqll | Ltll | Ltell | Gtell | Gtll 
 instance Show Bop where 
     show Add = "add"
     show Sub = "sub"
     show Mul = "mul"
-    show Div = "sdiv"
+    show LLDiv = "sdiv"
     show Eqll = "eq" 
     show Ltll = "slt" 
     show Ltell = "sle" 
@@ -203,6 +203,7 @@ typedBopToLLbop :: Op -> Bop
 typedBopToLLbop Plus = Add
 typedBopToLLbop Minus = Sub
 typedBopToLLbop Mult = Mul
+typedBopToLLbop Div = LLDiv
 typedBopToLLbop Lt = Ltll 
 typedBopToLLbop Lte = Ltell
 typedBopToLLbop Gt = Gtll

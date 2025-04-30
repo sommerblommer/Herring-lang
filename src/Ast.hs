@@ -3,7 +3,7 @@ import Data.List (uncons)
 
 data Lit = LI Int | LB Bool 
 
-data Op = Plus | Minus | Mult | Lt | Lte | Gt | Gte | Eq
+data Op = Plus | Minus | Mult | Div | Lt | Lte | Gt | Gte | Eq
 type Ast = [Function]
 
 data Expr = 
@@ -38,6 +38,7 @@ instance Show Op where
     show Plus = "+"
     show Minus = "-"
     show Mult = "*"
+    show Div = "/"
     show Lt = "<"
     show Lte = "<="
     show Gt = ">"

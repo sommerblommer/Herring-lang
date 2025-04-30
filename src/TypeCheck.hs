@@ -8,6 +8,7 @@ typeOfFunction :: Ast.Op -> Typ
 typeOfFunction Ast.Plus = IntType 
 typeOfFunction Ast.Mult = IntType 
 typeOfFunction Ast.Minus = IntType 
+typeOfFunction Ast.Div = IntType
 typeOfFunction Ast.Lt = BoolType 
 typeOfFunction Ast.Gt = BoolType 
 typeOfFunction Ast.Lte = BoolType
@@ -18,6 +19,7 @@ astOpToTASTOp :: Ast.Op -> TAST.Op
 astOpToTASTOp Ast.Plus = TAST.Plus 
 astOpToTASTOp Ast.Mult = TAST.Mult 
 astOpToTASTOp Ast.Minus = TAST.Minus
+astOpToTASTOp Ast.Div = TAST.Div
 astOpToTASTOp Ast.Lt = TAST.Lt 
 astOpToTASTOp Ast.Gt = TAST.Gt 
 astOpToTASTOp Ast.Lte = TAST.Lte
