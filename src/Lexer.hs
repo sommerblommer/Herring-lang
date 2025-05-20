@@ -98,10 +98,12 @@ findToken ']' _ = return $ pure RightSqBracket
 findToken '=' _ = return $ pure Equal
 findToken '+' _ = return $ pure Plus
 findToken '*' _ = return $ pure Star
-findToken '-' _ = return $ pure Minus
 findToken '/' _ = return $ pure Slash
 findToken ':' _ = return $ pure Colon
 findToken '.' _ = return $ pure Dot
+findToken '-' (x:_) 
+    | x == '>' =  return ' ' >> (return $ pure RightArrow)
+    | otherwise = return $ pure Minus 
 findToken '>' (x:y:ys) 
     | x == '=' =  return ' ' >> (return $ pure Gte)
     | otherwise = return $ pure Gt 
@@ -114,6 +116,7 @@ findToken '\n' (x:xs) = return ' ' >> findToken x xs
 findToken '\n' [] = return $ pure EOF
 findToken '\t' (x:xs) = return ' ' >> findToken x xs
 findToken ' ' (x:xs) = return ' ' >> findToken x xs
+findToken '-' _ = return $ pure Minus
 findToken c xs 
     | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs
     | otherwise = checkIdentForReserved <$> findIdent "" c xs

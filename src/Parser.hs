@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 module Parser (parse) where 
 import Data.Set as Set
 import Lexer (Token(..), StreamToken(..), Content(..))
@@ -7,8 +8,8 @@ import Ast
 import Control.Monad.Writer 
 import Data.Bifunctor (Bifunctor(bimap))
 import Data.Text (pack, splitOn, Text, takeWhile, head, unpack)
-import Data.Text.Internal.Fusion (Stream(Stream))
-import Control.Arrow (Arrow(arr))
+import Control.Exception (Exception (toException), throw, SomeException)
+
 
 type Rule = [Atom]
 
@@ -28,8 +29,6 @@ startRule = "Ast"
 
 startPosition :: Position 
 startPosition = Position {prod="", rule=[V "Ast"], pos=0, followSet= singleton EOF}
-
-
 
 
 
@@ -310,6 +309,18 @@ find s rs g =
     else 
         tt
 -------------------- Actions --------------------
+data ParseException = forall e . Exception e => ParseException e 
+instance Show ParseException where
+    show (ParseException e) = "ParseError " ++ show e
+instance Exception ParseException 
+parseExcetionToException :: Exception e => e -> SomeException 
+parseExcetionToException = toException . ParseException
+
+data PExceptions = ShiftReduce String | FindAction String | MissingRule String
+    deriving (Show)
+instance Exception PExceptions where 
+    toException = parseExcetionToException 
+
 data Action = Accept | Shift | Reduce
     deriving (Show)
 
@@ -389,8 +400,8 @@ findAction state (StreamToken (token, _)) =
     case (s, r) of 
         (p:_, []) -> (Shift, p)
         ([],  p:_) -> (Reduce, p)
-        (p:_, p2:_) -> error $ "Shift/Reduce in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
-        (_ , _) -> error $ "undefined in findAction\nstate: " ++ prettyState 0 state ++ "\nStreamToken: " ++ show token
+        (p:_, p2:_) -> throw $ ShiftReduce $ "Shift/Reduce in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
+        (_ , _) -> throw $ FindAction $ "undefined in findAction\nstate: " ++ prettyState 0 state ++ "\nStreamToken: " ++ show token
 
 isAccepting :: State -> Token -> Bool
 isAccepting state t  
@@ -583,7 +594,7 @@ ruleFuncs input stack =
                 StreamToken (_, I i) -> 
                     logStack (E LitExp {lit= LI i}:rest) 1
                 _ -> error "wrong content of token"
-         (r, ps) ->  error $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
+         (r, ps) ->  throw $ MissingRule $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
 
 -------------------- Generating Grammar --------------------
 

@@ -12,11 +12,11 @@ main :: IO ()
 main = do  
     args <- getArgs 
     (file, verb) <- handleArgs args
-    print $ lexicalAnalysis file
     parsed <- parse verb $ lexicalAnalysis file
     let typedAst = typeCheckAst parsed 
     let compiled = codegenAst  typedAst
     _ <- if verb then do
+            print $ lexicalAnalysis file
             putStrLn $ prettyPrintAst parsed 
             putStrLn $ replicate 40 '*'
             putStrLn compiled 
