@@ -1,8 +1,20 @@
-bar : (x : Int) -> (y : Int) -> Int 
-    return x + y
-foo : (x : Int) -> Int 
-    return bar (x, 1)
-main : Int
-    let y = 69 in
-    let x = 7 in 
-    return x + (foo (y))
+bgro : ( k : Int) -> ( xqlo : Int) -> ( abm : Int) -> ( fo : Int) -> ( xj : Int) -> ( bka : Int) -> Int
+        return 97
+ main : Int
+        let sc = 937/863+(bgro(706, 923+107, 557, 510, 608, 499))-520
+        in
+        let nl = (bgro(sc, 941, sc, 159, 518, 881/sc))
+        in
+        let qdd = 674
+        in
+        let nazc = 378
+        in
+        for ez in 442..515 ->
+        932
+<-
+
+        let pfqt = (bgro(347*290*651*qdd/qdd*nl/nl*22, qdd, 953, 991*267, 219, nl))
+        in
+
+        let _ = print((bgro(571, 623, 250, 161-572-333/27, 130, 103)))
+        in return 0

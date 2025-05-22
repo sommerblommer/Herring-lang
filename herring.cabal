@@ -34,6 +34,7 @@ library
       Parser
       TypeCheck
       TypedAst
+      Exceptions
   other-modules:
       Paths_herring
   autogen-modules:

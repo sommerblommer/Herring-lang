@@ -3,6 +3,8 @@ import Ast
 import TypedAst as TAST
 import Data.Map as DM
 import Data.List 
+import Control.Exception (throw)
+import Exceptions 
 
 typeOfFunction :: Ast.Op -> Typ
 typeOfFunction Ast.Plus = IntType 
@@ -40,8 +42,8 @@ lookupFunc env iden =
             (Just (FunType x)) -> x 
             Nothing -> case find (\(FunType (t, _)) -> iden == t) predefinedFunctions2 of 
                         (Just (FunType y)) -> y 
-                        _ -> error $ "function " ++ iden ++ " not defined"
-            _ -> error $ "function " ++ iden ++ " not defined"
+                        _ -> throw $ MissingVar $ "function " ++ iden ++ " not defined"
+            _ -> throw $ MissingVar $ "function " ++ iden ++ " not defined"
 
 getTypeOfExpr :: Env -> TAST.Expr -> Typ 
 getTypeOfExpr env (Ident var _) = case vars env DM.!? var  of 
@@ -65,7 +67,7 @@ typeCheckExpr env IExp {ident = str} =
     let lup = vars env !? str in 
     case lup of 
         Just t -> (Ident str t, t)
-        Nothing -> error $ "variable: " ++ str ++ " has not been defined"
+        Nothing -> throw $ MissingVar $ "variable: " ++ str ++ " has not been defined"
 typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} = 
     let (leftExp, ltyp) = typeCheckExpr env l in
     let (rightExp, rtyp) = typeCheckExpr env r in
@@ -73,7 +75,7 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
     if ltyp == rtyp then 
         (TAST.BinOp leftExp (astOpToTASTOp operator) rightExp opType, opType)
     else 
-    error $ "type mismatch\nleft side: " ++ show ltyp ++ "\nright side: " ++ show rtyp 
+    throw $ MissingVar $ "type mismatch\nleft side: " ++ show ltyp ++ "\nright side: " ++ show rtyp 
 typeCheckExpr env (Ast.FunCall fvar args) = 
     let (fname, paramTyps) = case fvar of 
             (IExp {ident = ide} ) -> lookupFunc env ide
@@ -103,11 +105,11 @@ typeCheckExpr env (Ast.ArrLit lits) =
     in let fall = all (\t -> t == head typs) typs
     in if fall 
         then (TAST.ArrLit texps (head typs), Pointer $ head typs)
-        else error "types in array literal are not the same"
+        else throw $ TypeE "types in array literal are not the same"
 
 typeCheckExpr env (Ast.ArrLookUp arr lup) = 
     let foo (Pointer t) = t 
-        foo _ = error "not a pointer"
+        foo _ = throw $ TypeE "not a pointer"
     in
     let tlup = assertType env lup IntType 
     in let (lexpr, lt) = typeCheckExpr env arr 
@@ -122,10 +124,10 @@ assertType env expr (Pointer _) =
     let (texp, exptyp) = typeCheckExpr env expr in 
     case exptyp of 
         (Pointer _) -> texp 
-        _ -> error "wrong type"
+        _ -> throw $ TypeE "wrong type"
 assertType env expr typ = 
     let (texp, exptyp) = typeCheckExpr env expr in 
-    if exptyp == typ then texp else error "wrong type"
+    if exptyp == typ then texp else throw $ TypeE "wrong type"
 
 
 
@@ -156,7 +158,7 @@ typeCheckStm env (Ast.Exp expr) =
 typeCheckStm env (Ast.IfThenElse cond th el) = 
     let (tcnd, ctyp) = typeCheckExpr env cond in 
     if ctyp /= BoolType then
-        error "if condition not is not a boolean"
+        throw $ TypeE "if condition not is not a boolean"
     else 
     let (thexp, _) = typeCheckExpr env th in 
     let (elexp, _) = typeCheckExpr env el in 
@@ -181,7 +183,7 @@ typeCheckFunction env func =
                                 case x of 
                                     (a, "Int") -> return (a, IntType)
                                     (b, "Bool") -> return (b, BoolType)
-                                    (_, unknown) -> error $ "Type: " ++ unknown ++ " is not recognised"
+                                    (_, unknown) -> throw $ TypeE $ "Type: " ++ unknown ++ " is not recognised"
 
 functionHeaders :: Env -> Ast.Function -> Env 
 functionHeaders env func =  
@@ -194,7 +196,7 @@ functionHeaders env func =
         helper [] = []
         helper ((_, "Int"):xs) = IntType : helper xs
         helper ((_, "Bool"):xs) = BoolType : helper xs 
-        helper unknown = error $ "Type: " ++ show unknown ++ " is not recognised in fh"
+        helper unknown = throw $ TypeE $ "Type: " ++ show unknown ++ " is not recognised in fh"
 
 
 typeCheckAst :: Ast.Ast -> TypedAst

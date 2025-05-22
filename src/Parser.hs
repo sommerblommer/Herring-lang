@@ -1,4 +1,3 @@
-{-# LANGUAGE ExistentialQuantification #-}
 module Parser (parse) where 
 import Data.Set as Set
 import Lexer (Token(..), StreamToken(..), Content(..))
@@ -8,7 +7,8 @@ import Ast
 import Control.Monad.Writer 
 import Data.Bifunctor (Bifunctor(bimap))
 import Data.Text (pack, splitOn, Text, takeWhile, head, unpack)
-import Control.Exception (Exception (toException), throw, SomeException)
+import Control.Exception (throw)
+import Exceptions 
 
 
 type Rule = [Atom]
@@ -309,18 +309,6 @@ find s rs g =
     else 
         tt
 -------------------- Actions --------------------
-data ParseException = forall e . Exception e => ParseException e 
-instance Show ParseException where
-    show (ParseException e) = "ParseError " ++ show e
-instance Exception ParseException 
-parseExcetionToException :: Exception e => e -> SomeException 
-parseExcetionToException = toException . ParseException
-
-data PExceptions = ShiftReduce String | FindAction String | MissingRule String
-    deriving (Show)
-instance Exception PExceptions where 
-    toException = parseExcetionToException 
-
 data Action = Accept | Shift | Reduce
     deriving (Show)
 
