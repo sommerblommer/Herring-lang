@@ -419,25 +419,32 @@ logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
 logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 
 types :: ParseStack -> (ParseItem, ParseStack)
-types (_:Pt (StreamToken (_, Str typ)):_:Pt (StreamToken (_, Str var)):_:_:FunParams pms:rest) = 
-    (FunParams ((var, typ):pms), rest)
-types (_:Pt (StreamToken (_, Str typ)):_:Pt (StreamToken (_, Str var)):_:rest) = 
-    (FunParams [(var, typ)], rest)
-types (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) = 
-    let fpms = FunParams . reverse $ ("", retType):pms in
-    (fpms, rest)
-types _ = error "in types"
+types ps = 
+    let typ a = case a of 
+            E (Ast.IExp s) -> s 
+            Pt (StreamToken (_, Str t)) -> t
+            _ -> throw $ TypeNotParsed $ show a
 
-accumulateArgs :: [Expr] -> ParseStack ->  ParseStack 
-accumulateArgs acc (E e: Pt (StreamToken (Comma, _)):rest) =  accumulateArgs [e] rest
-accumulateArgs acc (E e: lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (acc ++ [e]) : lp : rest
-accumulateArgs acc (res@(FunArgs a): lp@(Pt (StreamToken (LeftParen, _))):rest) = FunArgs (acc ++ a) : lp : rest
-accumulateArgs acc (Pt (StreamToken (Comma, _)) : rest) = accumulateArgs acc rest
-accumulateArgs _ e = error $ show e ++ "kfds????"
+    in case ps of 
+
+        (_:tToken:_:Pt (StreamToken (_, Str var)):_:_:FunParams pms:rest) ->
+            (FunParams ((var, typ tToken):pms), rest)
+
+        (_:tToken:_:Pt (StreamToken (_, Str var)):_:rest) ->
+            (FunParams [(var, typ tToken)], rest)
+
+        (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) -> 
+            let fpms = FunParams . reverse $ ("", retType):pms in
+            (fpms, rest)
+
+        _ -> throw $ TypeNotParsed $ show ps
 
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         -- in types 
+         ([T LeftSqBracket, T Ident, T RightSqBracket], _:Pt (StreamToken (c, Str typ)):_:rest ) -> 
+                 logStack (Pt(StreamToken(c, Str $ "ptr " ++ typ)):rest) 3
          ([V "Exp", T LeftSqBracket, V "Exp", T RightSqBracket], _:E lup:_:E lhs:rest) -> 
             let arrLup = E $ ArrLookUp lhs lup 
             in logStack (arrLup:rest) 4
@@ -449,6 +456,9 @@ ruleFuncs input stack =
             in logStack (newFargs:rest) 3
          ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
             let arrLit = E $ ArrLit $ reverse lits
+            in logStack (arrLit:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:E l:_:rest) -> 
+            let arrLit = E $ ArrLit [l]
             in logStack (arrLit:rest) 3
          -- Var Instantiation
          ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
@@ -504,16 +514,19 @@ ruleFuncs input stack =
          ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:FunArgs args : _ : E exp : rest) -> 
             let funcall = E (FunCall exp args) in
             logStack (funcall:rest) 4
-         ([V "Exp", T Comma, V "Fparams"], stack) -> 
-            let args' = accumulateArgs [] stack in
-            logStack args' 3
+         ([V "Exp", T Comma, V "Fparams"], E l:_:E e:rest) -> 
+            let args = FunArgs [e, l] in
+            logStack (args:rest) 3
+         ([V "Exp", T Comma, V "Fparams"], FunArgs lits:_:E e:rest) -> 
+            let args = FunArgs $ e:lits in
+            logStack (args:rest) 3
          ([V "Types", T RightArrow, T Ident], stack) ->  
             let (pms, rest) = types stack in 
             logStack (pms:rest) 3
-         ([V "Types", T RightArrow, T LeftParen, T Ident, T Colon, T Ident, T RightParen], stack) ->  
+         ([V "Types", T RightArrow, T LeftParen, T Ident, T Colon, V "Type", T RightParen], stack) ->  
             let (pms, rest) = types stack in 
             logStack (pms:rest) 7
-         ([T LeftParen, T Ident, T Colon, T Ident, T RightParen], stack) ->  
+         ([T LeftParen, T Ident, T Colon, V "Type", T RightParen], stack) ->  
             let (pms, rest) = types stack in 
             logStack (pms:rest) 5
 -- for not params and only a return type

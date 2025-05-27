@@ -4,8 +4,8 @@ Ast => Function
 
 Function => ident : ReturnTypes Scope 
 
-Types => Types -> ( ident : ident )
-Types => ( ident : ident ) 
+Types => Types -> ( ident : Type )
+Types => ( ident : Type ) 
 
 ReturnTypes => Types -> ident 
 ReturnTypes => ident
@@ -45,6 +45,9 @@ Op => lte
 Op => gt 
 Op => gte
 Op => eq eq
+
+Type => ident 
+Type => [ ident ]
 
 Term => ( Exp ) 
 Term => literal 

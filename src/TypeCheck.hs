@@ -1,7 +1,7 @@
 module TypeCheck where 
 import Ast 
 import TypedAst as TAST
-import Data.Map as DM
+import qualified Data.Map as DM
 import Data.List 
 import Control.Exception (throw)
 import Exceptions 
@@ -28,16 +28,16 @@ astOpToTASTOp Ast.Lte = TAST.Lte
 astOpToTASTOp Ast.Gte = TAST.Gte 
 astOpToTASTOp Ast.Eq = TAST.Eq 
 
-data Env = Env {vars :: Map String Typ, functions :: [TAST.Function]}
+data Env = Env {vars :: DM.Map String Typ, functions :: [TAST.Function]}
 emptEnv :: Env 
-emptEnv = Env {vars = empty, functions = []}
+emptEnv = Env {vars = DM.empty, functions = []}
 
 insertIntoEnv :: String -> Typ -> Env -> Env 
 insertIntoEnv s t e = e {vars = DM.insert s t $ vars e}
 
 lookupFunc ::  Env -> String -> (String, [Typ]) 
 lookupFunc env iden = 
-    let lup = vars env !? iden 
+    let lup = vars env DM.!? iden 
     in case lup of 
             (Just (FunType x)) -> x 
             Nothing -> case find (\(FunType (t, _)) -> iden == t) predefinedFunctions2 of 
@@ -48,7 +48,7 @@ lookupFunc env iden =
 getTypeOfExpr :: Env -> TAST.Expr -> Typ 
 getTypeOfExpr env (Ident var _) = case vars env DM.!? var  of 
     Just t -> t 
-    Nothing -> error $ show var ++ " has no type"
+    Nothing -> throw $ TypeE $ show var ++ " is not instantiated"
 getTypeOfExpr _ Literal {tLit=l} = case l of 
     (TLI _) -> IntType 
     (TLB _) -> BoolType
@@ -64,7 +64,7 @@ typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
 typeCheckExpr _ LitExp {lit = LI i} = (TAST.Literal {tLit = TLI i}, IntType)
 typeCheckExpr _ LitExp {lit = LB i} = (TAST.Literal {tLit = TLB i}, IntType)
 typeCheckExpr env IExp {ident = str} = 
-    let lup = vars env !? str in 
+    let lup = vars env DM.!? str in 
     case lup of 
         Just t -> (Ident str t, t)
         Nothing -> throw $ MissingVar $ "variable: " ++ str ++ " has not been defined"
@@ -79,12 +79,12 @@ typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} =
 typeCheckExpr env (Ast.FunCall fvar args) = 
     let (fname, paramTyps) = case fvar of 
             (IExp {ident = ide} ) -> lookupFunc env ide
-            _ -> error $ show fvar ++ " not a valid function call"
+            _ -> throw $ FunCallException $ show fvar ++ " not a valid function call"
     in
     let typedArgs = Data.List.map (\(arg, pType) -> 
                 let (typeArg, typ) = typeCheckExpr env arg in
                 if pType == typ  then 
-                    typeArg else error $ show fvar ++ " is called with wrong types\nExpected type: " ++ show paramTyps ++ "\nActual Type: " ++ show typ 
+                    typeArg else throw $ FunCallException $ show fvar ++ " is called with wrong types\nExpected type: " ++ show paramTyps ++ "\nActual Type: " ++ show typ 
             ) $ zip args paramTyps
     in
     let rType = last paramTyps in 
@@ -104,7 +104,7 @@ typeCheckExpr env (Ast.ArrLit lits) =
     let (texps, typs) = unzip $ Prelude.foldl (\acc lit -> typeCheckExpr env lit : acc) [] lits 
     in let fall = all (\t -> t == head typs) typs
     in if fall 
-        then (TAST.ArrLit texps (head typs), Pointer $ head typs)
+        then (TAST.ArrLit texps (Pointer $ head typs), Pointer $ head typs)
         else throw $ TypeE "types in array literal are not the same"
 
 typeCheckExpr env (Ast.ArrLookUp arr lup) = 
@@ -174,7 +174,10 @@ typeCheckFunction env func =
     let pms = typeCheckParams (Ast.params func) in
     let newenv = Prelude.foldr (\(str, typ) acc -> insertIntoEnv str typ acc) env pms in 
     let (newbody, env') = typeCheckStm newenv $ Ast.body func in
-    let tfunc = (TAST.Function {TAST.funName = Ast.funName func, TAST.params = pms, TAST.body = newbody, TAST.returnType = IntType}) in
+    let tfunc = (TAST.Function 
+                    {TAST.funName = Ast.funName func, TAST.params = pms
+                    , TAST.body = newbody, TAST.returnType = IntType}
+                ) in
     let env'' = env {functions = tfunc : functions env'} in
     (tfunc, env'')
         where 
@@ -183,21 +186,35 @@ typeCheckFunction env func =
                                 case x of 
                                     (a, "Int") -> return (a, IntType)
                                     (b, "Bool") -> return (b, BoolType)
-                                    (_, unknown) -> throw $ TypeE $ "Type: " ++ unknown ++ " is not recognised"
+                                    (c, unknown) ->
+                                        case splitStr ' ' unknown of
+                                            ("ptr":ys) -> do 
+                                                let cc = [(c, y) | y <- ys]
+                                                (s, typ) <- typeCheckParams cc 
+                                                return (s, Pointer typ)
+                                            e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
 
 functionHeaders :: Env -> Ast.Function -> Env 
 functionHeaders env func =  
-    let rtyp = helper [("", Ast.returnType func)] in
-    let argTyps = helper $ Ast.params func in
-    let pms = FunType (Ast.funName func, argTyps ++ rtyp) in
+    let rtyp = helper ("", Ast.returnType func) in
+    let argTyps = foldl (\acc x ->  helper x : acc) [] $ Ast.params func in
+    let pms = FunType (Ast.funName func, argTyps ++ [rtyp]) in
     insertIntoEnv (Ast.funName func) pms env
     where 
-        helper :: [(String, String)] -> [Typ]
-        helper [] = []
-        helper ((_, "Int"):xs) = IntType : helper xs
-        helper ((_, "Bool"):xs) = BoolType : helper xs 
-        helper unknown = throw $ TypeE $ "Type: " ++ show unknown ++ " is not recognised in fh"
+        helper :: (String, String) -> Typ
+        helper (_, "Int") = IntType 
+        helper (_, "Bool") = BoolType 
+        helper (_, x) = case splitStr ' ' x of
+                            ("ptr":ys) ->  Pointer $  curry helper "" $ head ys 
+                            e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
 
+splitStr :: Char -> String -> [String]
+splitStr b s =  helper b s [] where 
+    helper :: Char -> String -> String -> [String]
+    helper _ [] acc = [reverse acc]
+    helper c (x:xs) acc 
+        | c == x = reverse acc : helper c xs [] 
+        | otherwise =  helper c xs (x : acc)
 
 typeCheckAst :: Ast.Ast -> TypedAst
 typeCheckAst funs =

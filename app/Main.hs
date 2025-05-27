@@ -7,6 +7,9 @@ import TypeCheck (typeCheckAst)
 import LlvmCodeGen (codegenAst)
 import System.Environment (getArgs)
 import System.Process
+import GHC.IO.Exception (ExitCode(ExitFailure))
+import Exceptions 
+import Control.Exception (throw)
 
 main :: IO ()
 main = do  
@@ -22,8 +25,14 @@ main = do
             putStrLn compiled 
             else return ()
     writeFile "output.ll" compiled
-    callProcess "clang" ["-O0", "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/app/stdlib.c", "output.ll"]
-    callProcess "./a.out" []
+    (ec, so, se) <- readProcessWithExitCode "clang" ["-O0", "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/app/stdlib.c", "output.ll"] ""
+    case ec of 
+        ExitFailure _ -> throw $ LLVME se 
+        _ -> return ()
+    (exitCode, stdOut, stdErr) <- readProcessWithExitCode "./a.out" [] ""
+    case exitCode of 
+        ExitFailure _ -> throw $ RE (show ec) stdOut stdErr 
+        _ -> putStr stdOut
 
 handleArgs :: [String] -> IO (String, Bool)
 handleArgs (filePath:"verbose":_) = do 
@@ -34,4 +43,4 @@ handleArgs (filePath:_) = do
     return (f, False)
 handleArgs _ = error "only one argument implemented"
 
-    
+

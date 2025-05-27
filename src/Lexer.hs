@@ -40,6 +40,7 @@ data Content = Str String | I Int | Nop
 
 newtype StreamToken a = StreamToken (a, Content)
 
+
 instance Show a => Show (StreamToken a) where 
     show (StreamToken (a, Str s)) = show a ++ " " ++ s 
     show (StreamToken (a, I i)) = show a ++ " " ++ show i 
@@ -65,8 +66,12 @@ instance Monad Incrementer where
     return = pure
     Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
 
+
+step :: Incrementer () 
+step = return () 
+
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n,.*[]/"
+singleCharTokens = ":()=+- ;\n,.*[]/<>"
 
 --- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
 -- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
@@ -102,20 +107,20 @@ findToken '/' _ = return $ pure Slash
 findToken ':' _ = return $ pure Colon
 findToken '.' _ = return $ pure Dot
 findToken '-' (x:_) 
-    | x == '>' =  return ' ' >> (return $ pure RightArrow)
+    | x == '>' =  step >> (return $ pure RightArrow)
     | otherwise = return $ pure Minus 
 findToken '>' (x:y:ys) 
-    | x == '=' =  return ' ' >> (return $ pure Gte)
+    | x == '=' =  step >> (return $ pure Gte)
     | otherwise = return $ pure Gt 
 findToken '<' (x:y:ys) 
-    | x == '=' = return ' ' >> (return $ pure Lte)
+    | x == '=' = step >> (return $ pure Lte)
     | x == ' ' = return $ pure Lt 
-    | x == '-' = return ' ' >> (return $ pure LeftArrow)
+    | x == '-' = step >> (return $ pure LeftArrow)
     | otherwise = checkIdentForReserved <$> findIdent "" '<' (x:y:ys) 
-findToken '\n' (x:xs) = return ' ' >> findToken x xs
+findToken '\n' (x:xs) = step >> findToken x xs
 findToken '\n' [] = return $ pure EOF
-findToken '\t' (x:xs) = return ' ' >> findToken x xs
-findToken ' ' (x:xs) = return ' ' >> findToken x xs
+findToken '\t' (x:xs) = step >> findToken x xs
+findToken ' ' (x:xs) = step >> findToken x xs
 findToken '-' _ = return $ pure Minus
 findToken c xs 
     | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs

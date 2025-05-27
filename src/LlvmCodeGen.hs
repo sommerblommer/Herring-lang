@@ -1,6 +1,8 @@
 module LlvmCodeGen (codegenAst) where
 import TypedAst
 import Lib (llvmStdLib)
+import Exceptions 
+import Control.Exception (throw)
 
 
 data LLtyp = I8 
@@ -30,6 +32,11 @@ tpConvert (Pointer t) = Ptr
 tpConvert StringType = error "TODO" 
 tpConvert TypedAst.Void = LlvmCodeGen.Void 
 tpConvert (FunType _) = error "TODO" 
+
+innerTyp :: Typ -> LLtyp 
+innerTyp (Pointer t) = tpConvert t
+innerTyp t = tpConvert t
+
 
 data Bop = Add | Sub | Mul | LLDiv | Eqll | Ltll | Ltell | Gtell | Gtll 
 instance Show Bop where 
@@ -176,8 +183,7 @@ instance Monad BuildLet where
                 let BuildLet b = f op in
                 let (cfg2, env2, op2) = b (cfg, env) in
                 (cfg2, env2, op2)
-        in 
-        BuildLet bl
+        in BuildLet bl
 
 getFresh :: BuildLet Int 
 getFresh = BuildLet (\(cfg, env) -> let fresh = uid env in (cfg, env {uid = fresh + 1}, fresh))
@@ -253,7 +259,7 @@ codegenExpr (Ident ident typ) = do
     o <- BuildLet (\(cfg, env) ->
             let o = case lookup ident (vars env) of
                     Just op -> op
-                    _ -> error $ "could not find var " ++ ident ++ "\nIn env: " ++ show (vars env)
+                    _ -> throw $ MissingVarInEnv $ "could not find var " ++ ident ++ "\nIn env: " ++ show (vars env)
             in (cfg, env, o)
          )
     addInstruction (Just "load") $ Load (tpConvert typ) o
@@ -282,7 +288,7 @@ codegenExpr (FunCall callee args rtyp) = do
 
     let fn = case callee of    
             (Ident str _) -> str 
-            _ -> error "malformed function call"
+            _ -> throw MalformedFunctionCall
     -- The following code is a mess
     -- because of the control monad and the explicit types of llvm 
     env <- getEnv 
@@ -305,7 +311,7 @@ codegenExpr (Range _ _ ) = error "TODO"
 codegenExpr (Closure stm _ ) = codegenStm stm
 
 codegenExpr (ArrLit lits typ) = do 
-    let t = tpConvert typ
+    let t = innerTyp typ
     let arType = Array (length lits) t
     alloc <- addInstruction (Just "alloc") $ Allocate arType
     _ <- fst $ foldl(\(acc, iter) l -> 
