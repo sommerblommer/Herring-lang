@@ -24,6 +24,7 @@ data Typ =
     | Void 
     | FunType (String, [Typ]) -- Name of function and it's type
     | Pointer Typ
+    | Record [(String, Typ)]
     deriving (Eq)
 
 instance Show Typ where 
@@ -32,6 +33,11 @@ instance Show Typ where
     show StringType = "String"
     show Void = "Void"
     show (Pointer p) = "ptr " ++ show p
+    show (Record ts) =
+        "{" ++ helper ts ++ "}"
+        where helper [] = ""
+              helper [x] = show x 
+              helper (x:xs) = show x ++ ", " ++ show xs
     show (FunType (name, typs)) = 
         name ++ helper typs 
         where 
@@ -69,7 +75,10 @@ data Stm =
 
 data Function = Function {funName :: String, params :: [(String, Typ)], body :: Stm, returnType :: Typ}
 
-type TypedAst = [Function]
+data TypeDecl = TType {tname :: String, innerTs :: [(String, Typ)]}
+
+
+data TypedAst = TAST {tdecls :: [TypeDecl], fdecls :: [Function]}
 
 
 instance Show Expr where 
@@ -84,7 +93,7 @@ prettyPrintTypedAst :: TypedAst -> String
 prettyPrintTypedAst a = "TypedAst:\n" ++ foldl (\acc x -> acc 
                                                 ++ "\n" ++ funName x ++ " : " ++ printParams (params x) 
                                                 ++ show (returnType x) ++ "\n" 
-                                                ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x)))) ) "" a
+                                                ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x)))) ) "" (fdecls a)
 
 printParams :: [(String, Typ)] -> String 
 printParams [] = ""

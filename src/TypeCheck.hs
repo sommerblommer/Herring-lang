@@ -29,7 +29,7 @@ astOpToTASTOp Ast.Lte = TAST.Lte
 astOpToTASTOp Ast.Gte = TAST.Gte 
 astOpToTASTOp Ast.Eq = TAST.Eq 
 
-data Env = Env {vars :: DM.Map String Typ, functions :: [TAST.Function]}
+data Env = Env {vars :: DM.Map String Typ, functions :: [TAST.Function], types :: [TAST.TypeDecl]}
 emptEnv :: Env 
 emptEnv = Env {vars = DM.empty, functions = []}
 
@@ -153,7 +153,7 @@ typeCheckStm (Ast.LetIn str expr _) = do
     modify (insertIntoEnv str exprtype) 
     return $ TAST.LetIn str texpr exprtype
 
-typeCheckStm (Ast.Scope stms) = TAST.Scope <$> mapM typeCheckStm stms
+typeCheckStm (Ast.Scope stms) = TAST.Scope <$> traverse typeCheckStm stms
 
 typeCheckStm  (Ast.Return expr _) = do
     env <- get
@@ -187,19 +187,19 @@ typeCheckFunction env func =
                 ) in
     let env'' = env {functions = tfunc : functions env'} in
     (tfunc, env'')
-        where 
-        typeCheckParams :: [(String, String)] -> [(String, Typ)]
-        typeCheckParams xs = do x <- xs 
-                                case x of 
-                                    (a, "Int") -> return (a, IntType)
-                                    (b, "Bool") -> return (b, BoolType)
-                                    (c, unknown) ->
-                                        case splitStr ' ' unknown of
-                                            ("ptr":ys) -> do 
-                                                let cc = [(c, y) | y <- ys]
-                                                (s, typ) <- typeCheckParams cc 
-                                                return (s, Pointer typ)
-                                            e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
+
+typeCheckParams :: [(String, String)] -> [(String, Typ)]
+typeCheckParams xs = do x <- xs 
+                        case x of 
+                            (a, "Int") -> return (a, IntType)
+                            (b, "Bool") -> return (b, BoolType)
+                            (c, unknown) ->
+                                case splitStr ' ' unknown of
+                                    ("ptr":ys) -> do 
+                                        let cc = [(c, y) | y <- ys]
+                                        (s, typ) <- typeCheckParams cc 
+                                        return (s, Pointer typ)
+                                    e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
 
 functionHeaders :: Env -> Ast.Function -> Env 
 functionHeaders env func =  
@@ -215,6 +215,13 @@ functionHeaders env func =
                             ("ptr":ys) ->  Pointer $  curry helper "" $ head ys 
                             e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
 
+typeDecls :: Env -> [Ast.TypeDecl] -> Env 
+typeDecls = foldr (\td acc -> 
+                let inner = typeCheckParams $ typs td
+                    tt = TType {TAST.tname= Ast.tname td, innerTs=inner}
+                in acc {types = tt : types acc}
+            ) 
+
 splitStr :: Char -> String -> [String]
 splitStr b s =  helper b s [] where 
     helper :: Char -> String -> String -> [String]
@@ -223,12 +230,16 @@ splitStr b s =  helper b s [] where
         | c == x = reverse acc : helper c xs [] 
         | otherwise =  helper c xs (x : acc)
 
+
+
 typeCheckAst :: Ast.Ast -> TypedAst
-typeCheckAst funs =
-    let initenv = Prelude.foldl functionHeaders emptEnv funs
-    in reverse . fst $ Prelude.foldl (\(acc, env) x -> 
+typeCheckAst ast =
+    let tenv               = typeDecls emptEnv $ Ast.tdecls ast
+        initenv            = Prelude.foldl functionHeaders tenv $ Ast.fdecls ast
+        (funs, lastEnv)    = Prelude.foldl (\(acc, env) x -> 
                                     let fenv = functionHeaders env x in 
                                     let (stm, newenv) = typeCheckFunction fenv x in
                                     (stm : acc, newenv)
-                                    ) ([], initenv) funs
+                                    ) ([], initenv) $ Ast.fdecls ast
+    in TAST {TAST.tdecls=types lastEnv, TAST.fdecls=reverse funs}
 

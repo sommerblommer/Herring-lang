@@ -140,9 +140,9 @@ instance Show FDecl where
         helper [(n, t)] = show t ++ "%" ++ n 
         helper ((name, typ):xs) = show typ ++ " %" ++ name ++ ", " ++ helper xs 
 
-data Program = Program {fdecls :: [FDecl], tdecls :: [TDecl]}
+data Program = Program {lfdecls :: [FDecl], ltdecls :: [TDecl]}
 instance Show Program where 
-    show p = foldl (\acc a -> show a ++ acc) "" $ fdecls p 
+    show p = foldl (\acc a -> show a ++ acc) "" $ lfdecls p 
 
 idBuildlet :: BuildLet Operand 
 idBuildlet = return Nop
@@ -450,6 +450,6 @@ codegenFunc fun =
 
 codegenAst :: TypedAst -> String  
 codegenAst tast = 
-    let fds = map codegenFunc tast in 
-    let prog = Program {fdecls=fds, tdecls = []} in 
+    let fds = map codegenFunc $ fdecls tast in 
+    let prog = Program {lfdecls=fds, ltdecls = []} in 
     llvmStdLib ++ show prog

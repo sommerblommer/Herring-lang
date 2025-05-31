@@ -352,7 +352,7 @@ codegenAst fs =
     let BuildLet cfg = Prelude.foldl (\acc stm -> 
                 let buildlet = codegenFunc stm in
                 acc >> buildlet
-            ) (return Nop) fs in
+            ) (return Nop) $ fdecls fs in
     let (cfg', lenv, _) = cfg (emptyCfg, emptyEnv) in
     printCfg $ fixCfg lenv cfg'
     

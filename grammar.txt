@@ -1,6 +1,14 @@
 
-Ast => Ast Function 
-Ast => Function
+Ast => Ast TopLevel 
+Ast => TopLevel
+
+TopLevel => Function 
+TopLevel => TypeDecl 
+
+TypeDecl => ident eq { TypeList }
+
+TypeList => ident : ident , TypeList 
+TypeList => ident : ident
 
 Function => ident : ReturnTypes Scope 
 

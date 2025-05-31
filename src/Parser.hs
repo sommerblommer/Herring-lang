@@ -410,7 +410,7 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr Location | Pa Ast | FunParams [(String, String)] | FunArgs [Expr]
+data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr Location | Pa Ast | Fun Function | TDecl TypeDecl | FunParams [(String, String)] | FunArgs [Expr]
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -442,6 +442,25 @@ types ps =
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+
+         -- TopLevel: 
+    
+        
+         ([V "Function"], f:rest) -> 
+            logStack (f:rest) 1
+         ([V "TypeDecl"], t:rest) -> 
+            logStack (t:rest) 1
+
+         -- type declarations: 
+         ([T Ident, T Equal, T LeftBracket, V "TypeList", T RightBreacket], _:FunParams tl:_:_:Pt StreamToken {content = Str tname}:rest) -> 
+            let tdecl = TypeDecl {tname=tname, typs=tl}
+            in logStack (TDecl tdecl :rest) 5
+
+         ([T Ident, T Colon, T Ident, T Comma, V "TypeList"], FunParams tl:_:Pt StreamToken {content = Str tname}:_:Pt StreamToken {content = Str name}:rest) -> 
+            logStack (FunParams ((name, tname) : tl):rest) 5 
+         ([T Ident, T Colon, T Ident], Pt StreamToken {content = Str name}: _ : Pt StreamToken {content = Str t}:rest) -> 
+            logStack (FunParams [(t, name)]:rest) 3
+
          -- in types 
          ([T LeftSqBracket, T Ident, T RightSqBracket], _:Pt st@StreamToken {content = Str typ}:_:rest ) -> 
                  logStack (Pt StreamToken {token = token st, content = Str $ "ptr " ++ typ, loc = loc st}:rest) 3
@@ -533,19 +552,31 @@ ruleFuncs input stack =
             logStack (pms:rest) 5
 -- for not params and only a return type
          ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:E e _: _: Pt StreamToken {content = Str name}:rest) -> 
-            logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
+            logStack (Fun Function {funName = name, params = [], body = scope, returnType = show e}:rest) 4
 -- for multiple params
          ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:FunParams fps: _: Pt StreamToken {content = Str name}:rest) -> 
             let (ret, pms) = case reverse fps of 
                     ((_,rt): ps) -> (rt, ps)
                     [] -> ("Thunk", [])
-            in logStack (Pa [Function {funName = name, params = reverse pms, body = scope, returnType = ret}]:rest) 4
+                fun = Function {funName = name, params = reverse pms, body = scope, returnType = ret}
+
+            in logStack (Fun fun :rest) 4
          ([T LeftParen, T RightParen] ,_:_:rest) ->  
             logStack (FunParams []:rest) 2
-         ([V "Ast", V "Function"] , Pa f:Pa ast:rest) ->  
-            logStack (Pa (ast ++ f):rest) 2
+
+         ([V "Ast", V "TopLevel"] , TDecl t:Pa ast:rest) ->  
+            logStack (Pa (ast {tdecls = t : tdecls ast}):rest) 2
+         ([V "Ast", V "TopLevel"] , Fun f:Pa ast:rest) ->  
+            logStack (Pa (ast {fdecls = f : fdecls ast}):rest) 2
+
+         -- end
          ([V "Ast"] ,Pa a:_) ->  
             logStack [Pa a] 1
+         ([V "TopLevel"], TDecl t:rest) -> 
+            logStack (Pa Ast {fdecls = [], tdecls = [t]}:rest) 1
+         ([V "TopLevel"], Fun f:rest) -> 
+            logStack (Pa Ast {fdecls = [f], tdecls = []}:rest) 1
+
          ([T Let, T Ident, T Equal, V "Exp", T In] ,_:E e _:_:Pt StreamToken {content = Str str, loc = l}:_:rest) ->  
             logStack (Ps (LetIn str e l):rest)  5
          ([T LeftParen, V "Exp", T RightParen] ,_:(E e l):_:rest) ->  
@@ -559,7 +590,7 @@ ruleFuncs input stack =
          ([V "Function"] ,Pa a:rest) ->  
             logStack (Pa a:rest) 1
          ([T Ident, T Colon, V "Types", V "Scope"] ,Ps scope:FunParams fps :_: Pt StreamToken{content = Str fname}:rest) ->  -- Function declarations
-            logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
+            logStack (Fun Function {funName = fname, params = fps, body = scope}:rest) 4
          ([V "Scope", V "Stm"] ,Ps e:Ps (Scope a):rest) ->  
             logStack (Ps (Scope (a ++ [e])):rest) 2
          ([V "Scope", V "Stm"] ,Ps e:Ps a:rest) ->  
@@ -633,6 +664,8 @@ parseAtom text
         ")"       -> T RightParen
         "["       -> T LeftSqBracket 
         "]"       -> T RightSqBracket
+        "{"       -> T LeftBracket 
+        "}"       -> T RightBreacket
         "let"     -> T Let
         "in"      -> T In
         "var"     -> T Var
@@ -649,5 +682,6 @@ parseAtom text
         "eq"      -> T Lexer.Equal
         "for"     -> T For
         "."       -> T Dot
+        "type"       -> T Type
         e         -> error $ "mising data types to parse to for: " ++ e
     

@@ -35,6 +35,7 @@ data Token =
     | Dot
     | LeftSqBracket
     | RightSqBracket
+    | Type
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
@@ -48,7 +49,7 @@ data StreamToken = StreamToken { token :: Token, content :: Content, loc :: Loca
 
 
 singleCharTokens :: String 
-singleCharTokens = ":()=+- ;\n,.*[]/<>"
+singleCharTokens = ":()=+- ;\n,.*[]/<>{}"
 
 lexicalAnalysis :: String -> IO [StreamToken]
 lexicalAnalysis =  helper (1,1) where 
@@ -146,6 +147,7 @@ checkIdentForReserved st
                           Str "then"   ->    simpleToken Then
                           Str "else"   ->    simpleToken Else
                           Str "for"    ->    simpleToken For
+                          Str "type"   ->    simpleToken Type
                           _            ->    st
 
 

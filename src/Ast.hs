@@ -8,7 +8,6 @@ instance Show Lit where
     show (LB b) = show b
 
 data Op = Plus | Minus | Mult | Div | Lt | Lte | Gt | Gte | Eq
-type Ast = [Function]
 
 type Location = (Int, Int)
 
@@ -34,9 +33,15 @@ data Stm =
 data Function = Function {funName :: String, params :: [(String, String)], body :: Stm, returnType :: String}
     deriving (Show)
 
+data TypeDecl = TypeDecl {tname :: String, typs :: [(String, String)]}
+    deriving (Show)
 
 
+data Ast = Ast {tdecls :: [TypeDecl], fdecls :: [Function]}
+    deriving (Show)
 
+combineAsts :: Ast -> Ast -> Ast 
+combineAsts a b = Ast {tdecls = tdecls a ++ tdecls b, fdecls = fdecls a ++ fdecls b}
 
 -- Rest is for printing
 
@@ -54,7 +59,6 @@ instance Show Op where
 instance Show Expr where
     show (IExp s _) = s 
     show (LitExp  i _) =  show i
-    show (LitExp  b _) =  show b
     show (BinOp l o r _) = "(" ++ show l ++ show o ++ show r ++ ")"
     show (FunCall fname args _) =
         let argString = foldl (\acc e -> show e ++ " " ++ acc) "" args in
@@ -84,10 +88,15 @@ intToChar = toEnum
 -- '\128'
 
 prettyPrintAst :: Ast -> String 
-prettyPrintAst a = "Ast:\n" ++ foldl (\acc x -> acc 
-                                                ++ "\n" ++ funName x ++ " : " ++ printParams (params x) 
-                                                ++ returnType x ++ "\n" 
-                                                ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x)))) ) "" a
+prettyPrintAst a = "Ast:\n" ++ foldl printFun "" (fdecls a)
+
+printFun :: String -> Function ->  String 
+printFun acc x = 
+        acc 
+        ++"\n" ++ funName x ++ " : " ++ printParams (params x) 
+        ++ returnType x ++ "\n" 
+        ++ unlines (fmap ("   " ++) (lines (prettyPrintStm (body x))))
+
 
 printParams :: [(String, String)] -> String 
 printParams [] = ""
