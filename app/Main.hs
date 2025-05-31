@@ -15,24 +15,23 @@ main :: IO ()
 main = do  
     args <- getArgs 
     (file, verb) <- handleArgs args
-    parsed <- parse verb $ lexicalAnalysis file
+    parsed <- parse verb =<< lexicalAnalysis file
     let typedAst = typeCheckAst parsed 
     let compiled = codegenAst  typedAst
     _ <- if verb then do
-            print $ lexicalAnalysis file
             putStrLn $ prettyPrintAst parsed 
             putStrLn $ replicate 40 '*'
             putStrLn compiled 
             else return ()
     writeFile "output.ll" compiled
-    (ec, so, se) <- readProcessWithExitCode "clang" ["-O0", "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/app/stdlib.c", "output.ll"] ""
+    (ec, so, se) <- readProcessWithExitCode "clang" ["-O0", "app/stdlib.c", "output.ll"] ""
     case ec of 
         ExitFailure _ -> throw $ LLVME se 
         _ -> return ()
-    (exitCode, stdOut, stdErr) <- readProcessWithExitCode "./a.out" [] ""
+    exitCode <-  waitForProcess =<< spawnProcess "./a.out" []
     case exitCode of 
-        ExitFailure _ -> throw $ RE (show ec) stdOut stdErr 
-        _ -> putStr stdOut
+        ExitFailure _ -> throw $ RE (show ec) "" "" 
+        _ -> return ()
 
 handleArgs :: [String] -> IO (String, Bool)
 handleArgs (filePath:"verbose":_) = do 

@@ -5,6 +5,7 @@ import qualified Data.Map as DM
 import Data.List 
 import Control.Exception (throw)
 import Exceptions 
+import Control.Monad.State (State, MonadState (get, put), modify, runState)
 
 typeOfFunction :: Ast.Op -> Typ
 typeOfFunction Ast.Plus = IntType 
@@ -97,7 +98,7 @@ typeCheckExpr env (Ast.Range start end) =
     (TAST.Range tstart tend, TAST.IntType)
 
 typeCheckExpr env (Ast.Closure stm) = 
-    let (typedStm, _) = typeCheckStm env  stm  in
+    let (typedStm, _) = runState (typeCheckStm stm) env  in
     (TAST.Closure typedStm IntType, IntType)
 
 typeCheckExpr env (Ast.ArrLit lits) = 
@@ -132,48 +133,53 @@ assertType env expr typ =
 
 
 
-typeCheckStm :: Env -> Ast.Stm -> (TAST.Stm, Env)
-typeCheckStm env (Ast.ForLoop ident iter body) = 
-    let (iterExp, titer) = typeCheckExpr env iter in
-    let newenv = insertIntoEnv ident titer env in -- created variable has to be a resulting type of the iterator  
-    let (bexp, bodyt) = typeCheckExpr newenv body in
-    (TAST.ForLoop ident iterExp bexp titer, env)
-typeCheckStm env (Ast.LetIn str expr) = 
-    let (texpr, exprtype) = typeCheckExpr env expr in
-    let newenv = insertIntoEnv str exprtype env in 
-    (TAST.LetIn str texpr exprtype, newenv)
-typeCheckStm env (Ast.Scope stms) = 
-    let (res, env'') =  Prelude.foldl (\(acc, env') x -> 
-                                    let (stm, newenv) = typeCheckStm env' x in
-                                    (stm : acc, newenv)
-                                    ) ([], env) stms
-    in 
-    (TAST.Scope (reverse res), env'')
-typeCheckStm env (Ast.Return expr) = 
-    let (texpr, exprtype) = typeCheckExpr env expr in
-    (TAST.Return texpr exprtype, env)
-typeCheckStm env (Ast.Exp expr) =
-    let (texpr, exprtype) = typeCheckExpr env expr in
-    (TAST.StmExpr texpr exprtype, env)
-typeCheckStm env (Ast.IfThenElse cond th el) = 
-    let (tcnd, ctyp) = typeCheckExpr env cond in 
+typeCheckStm :: Ast.Stm -> State Env TAST.Stm
+typeCheckStm (Ast.ForLoop ident iter body) = do
+    env <- get 
+    let (iterExp, titer) = typeCheckExpr env iter 
+
+    -- created variable has to be a resulting type of the iterator, also is out of scope after loop
+    let newenv = insertIntoEnv ident titer env  
+    let (bexp, _) = typeCheckExpr newenv body 
+    return $ TAST.ForLoop ident iterExp bexp titer
+
+typeCheckStm (Ast.LetIn str expr) = do
+    env <- get 
+    let (texpr, exprtype) = typeCheckExpr env expr 
+    modify (insertIntoEnv str exprtype) 
+    return $ TAST.LetIn str texpr exprtype
+typeCheckStm (Ast.Scope stms) = do
+    a <- mapM typeCheckStm stms
+    return $ TAST.Scope a
+typeCheckStm  (Ast.Return expr) = do
+    env <- get
+    let (texpr, exprtype) = typeCheckExpr env expr 
+    return $ TAST.Return texpr exprtype
+typeCheckStm  (Ast.Exp expr) = do 
+    env <- get 
+    let (texpr, exprtype) = typeCheckExpr env expr
+    return $ TAST.StmExpr texpr exprtype
+typeCheckStm  (Ast.IfThenElse cond th el) = do 
+    env <- get
+    let (tcnd, ctyp) = typeCheckExpr env cond 
     if ctyp /= BoolType then
         throw $ TypeE "if condition not is not a boolean"
-    else 
-    let (thexp, _) = typeCheckExpr env th in 
-    let (elexp, _) = typeCheckExpr env el in 
-    (TAST.IfThenElse tcnd thexp elexp, env)
+    else do 
+        let (thexp, _) = typeCheckExpr env th  
+        let (elexp, _) = typeCheckExpr env el  
+        return $ TAST.IfThenElse tcnd thexp elexp
 
-typeCheckStm env (Ast.VarInst varIdent bd) = 
-    let (texpr, exprtype) = typeCheckExpr env bd in
-    let newenv = insertIntoEnv varIdent exprtype env in 
-    (TAST.LetIn varIdent texpr exprtype, newenv)
+typeCheckStm  (Ast.VarInst varIdent bd) = do 
+    env <- get
+    let (texpr, exprtype) = typeCheckExpr env bd
+    modify $ insertIntoEnv varIdent exprtype 
+    return $ TAST.LetIn varIdent texpr exprtype
 
 typeCheckFunction :: Env ->  Ast.Function -> (TAST.Function, Env)
 typeCheckFunction env func = 
     let pms = typeCheckParams (Ast.params func) in
     let newenv = Prelude.foldr (\(str, typ) acc -> insertIntoEnv str typ acc) env pms in 
-    let (newbody, env') = typeCheckStm newenv $ Ast.body func in
+    let (newbody, env') = runState (typeCheckStm $ Ast.body func) newenv  in
     let tfunc = (TAST.Function 
                     {TAST.funName = Ast.funName func, TAST.params = pms
                     , TAST.body = newbody, TAST.returnType = IntType}
