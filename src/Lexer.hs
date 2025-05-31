@@ -79,23 +79,26 @@ newLine = do
 end :: State (Int, Location) () 
 end = put (1000, (0, 0))
 
+stepR :: Token -> State (Int, Location) StreamToken
+stepR = (>>) step . return . simpleToken
+
 --- >>> runState (findToken 'h' "ead : ") (1,1) 
 -- ((Ident,Str "head",(0,0)),(5,1))
 findToken :: Char -> String -> State (Int, Location) StreamToken 
-findToken ',' _ = step >> return (simpleToken Comma)
-findToken ';' _ = step >> return (simpleToken SemiColon)
-findToken '(' _ = step >> return (simpleToken LeftParen  )
-findToken ')' _ = step >> return (simpleToken RightParen  )
-findToken '{' _ = step >> return (simpleToken LeftBracket  )
-findToken '}' _ = step >> return (simpleToken RightBreacket  )
-findToken '[' _ = step >> return (simpleToken LeftSqBracket  )
-findToken ']' _ = step >> return (simpleToken RightSqBracket  )
-findToken '=' _ = step >> return (simpleToken Equal)
-findToken '+' _ = step >> return (simpleToken Plus)
-findToken '*' _ = step >> return (simpleToken Star)
-findToken '/' _ = step >> return (simpleToken Slash)
-findToken ':' _ = step >> return (simpleToken Colon)
-findToken '.' _ = step >> return (simpleToken Dot)
+findToken ',' _ = stepR Comma
+findToken ';' _ = stepR SemiColon
+findToken '(' _ = stepR LeftParen  
+findToken ')' _ = stepR RightParen  
+findToken '{' _ = stepR LeftBracket  
+findToken '}' _ = stepR RightBreacket  
+findToken '[' _ = stepR LeftSqBracket  
+findToken ']' _ = stepR RightSqBracket  
+findToken '=' _ = stepR Equal
+findToken '+' _ = stepR Plus
+findToken '*' _ = stepR Star
+findToken '/' _ = stepR Slash
+findToken ':' _ = stepR Colon
+findToken '.' _ = stepR Dot
 findToken '-' (x:_) 
     | x == '>' = do 
         step
@@ -103,18 +106,18 @@ findToken '-' (x:_)
         return $ simpleToken RightArrow
     | otherwise = return $ simpleToken Minus 
 findToken '>' (x:y:ys) 
-    | x == '=' = step >> step >> return (simpleToken Gte)
-    | otherwise = step >> return (simpleToken Gt)
+    | x == '=' = step >> stepR Gte
+    | otherwise = stepR Gt
 findToken '<' (x:y:ys) 
-    | x == '=' = step >> step >> return ( simpleToken Lte)
-    | x == ' ' = step >> step >> return ( simpleToken Lt)
-    | x == '-' = step >> step >> return ( simpleToken LeftArrow)
+    | x == '=' = step >> stepR Lte
+    | x == ' ' = step >> stepR Lt
+    | x == '-' = step >> stepR LeftArrow
     | otherwise = checkIdentForReserved <$> findIdent "" '<' (x:y:ys) 
 findToken '\n' (x:xs) = newLine >> findToken x xs
 findToken '\n' [] =  end >> return (simpleToken EOF)
 findToken '\t' (x:xs) = replicateM_ 4 step >> findToken x xs
 findToken ' '  (x:xs) = step >> findToken x xs
-findToken '-' _ = step >> return (simpleToken Minus)
+findToken '-' _ = stepR Minus
 findToken c xs 
     | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs
     | otherwise = checkIdentForReserved <$> findIdent "" c xs
