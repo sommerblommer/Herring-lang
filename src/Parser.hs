@@ -1,6 +1,6 @@
 module Parser (parse) where 
 import Data.Set as Set
-import Lexer (Token(..), StreamToken(..), Content(..))
+import Lexer (Token(..), StreamToken, Content(..))
 import qualified Data.Map.Strict as Dm
 import Data.Maybe (catMaybes)
 import Ast 
@@ -312,9 +312,9 @@ find s rs g =
 data Action = Accept | Shift | Reduce
     deriving (Show)
 
-parse :: Bool -> [StreamToken Token] -> IO Ast 
+parse :: Bool -> [StreamToken] -> IO Ast 
 parse v tokens = do 
-    g <- readFile "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/grammar.txt"
+    g <- readFile "grammar.txt"
     let grammar = parseGrammar g 
     -- print grammar
     let initialState = initialClosure grammar startPosition 
@@ -328,8 +328,8 @@ parse v tokens = do
 
 
 
-action :: Grammar -> [State] -> ParseStack ->  [StreamToken Token] -> Writer [String] ParseStack 
-action g (state:stateStack) ps (st@(StreamToken (t, _)):tokens) =  do
+action :: Grammar -> [State] -> ParseStack ->  [StreamToken] -> Writer [String] ParseStack 
+action g (state:stateStack) ps (st@(t, _, _):tokens) =  do
     tell ["stack snapshot: " ++ show ps]
     let (nextAction, p) = findAction state st  
     case nextAction of 
@@ -367,8 +367,8 @@ action _ _ _ _ = error "something went wrong bruhh"
 canBeReduced :: Position -> Token -> Bool 
 canBeReduced p st = st `elem` followSet p
 
-findAction :: State -> StreamToken Token -> (Action, Position) 
-findAction state (StreamToken (token, _)) = 
+findAction :: State ->  StreamToken -> (Action, Position) 
+findAction state (token, _, loc) = 
     if isAccepting state token then (Accept, startPosition) else 
     let (s, r) = bimap catMaybes  catMaybes $ Set.foldl (\(acc, acc2) p -> 
                             if length (rule p) == pos p && canBeReduced p token then  
@@ -388,8 +388,8 @@ findAction state (StreamToken (token, _)) =
     case (s, r) of 
         (p:_, []) -> (Shift, p)
         ([],  p:_) -> (Reduce, p)
-        (p:_, p2:_) -> throw $ ShiftReduce $ "Shift/Reduce in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
-        (_ , _) -> throw $ FindAction $ "undefined in findAction\nstate: " ++ prettyState 0 state ++ "\nStreamToken: " ++ show token
+        (p:_, p2:_) -> throw $ ShiftReduce $ "Shift/Reduce at: " ++ show loc ++ " in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
+        (_ , _) -> throw $ FindAction $ "undefined at: " ++ show loc ++ " in findAction\nstate: " ++ prettyState 0 state ++ "\n: " ++ show token
 
 isAccepting :: State -> Token -> Bool
 isAccepting state t  
@@ -410,7 +410,7 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt (StreamToken Token) | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)] | FunArgs [Expr]
+data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)] | FunArgs [Expr]
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -422,18 +422,18 @@ types :: ParseStack -> (ParseItem, ParseStack)
 types ps = 
     let typ a = case a of 
             E (Ast.IExp s) -> s 
-            Pt (StreamToken (_, Str t)) -> t
+            Pt (_, Str t, _) -> t
             _ -> throw $ TypeNotParsed $ show a
 
     in case ps of 
 
-        (_:tToken:_:Pt (StreamToken (_, Str var)):_:_:FunParams pms:rest) ->
+        (_:tToken:_:Pt (_, Str var,_):_:_:FunParams pms:rest) ->
             (FunParams ((var, typ tToken):pms), rest)
 
-        (_:tToken:_:Pt (StreamToken (_, Str var)):_:rest) ->
+        (_:tToken:_:Pt  (_, Str var, _):_:rest) ->
             (FunParams [(var, typ tToken)], rest)
 
-        (Pt (StreamToken (_, Str retType)):_:FunParams pms:rest) -> 
+        (Pt (_, Str retType, _):_:FunParams pms:rest) -> 
             let fpms = FunParams . reverse $ ("", retType):pms in
             (fpms, rest)
 
@@ -443,15 +443,15 @@ ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
          -- in types 
-         ([T LeftSqBracket, T Ident, T RightSqBracket], _:Pt (StreamToken (c, Str typ)):_:rest ) -> 
-                 logStack (Pt(StreamToken(c, Str $ "ptr " ++ typ)):rest) 3
+         ([T LeftSqBracket, T Ident, T RightSqBracket], _:Pt ( (c, Str typ, loc)):_:rest ) -> 
+                 logStack (Pt(c, Str $ "ptr " ++ typ, loc):rest) 3
          ([V "Exp", T LeftSqBracket, V "Exp", T RightSqBracket], _:E lup:_:E lhs:rest) -> 
             let arrLup = E $ ArrLookUp lhs lup 
             in logStack (arrLup:rest) 4
-         ([T Literal, T Comma, V "ArrLit"], E e:_:Pt (StreamToken (_, I i)):rest) -> 
+         ([T Literal, T Comma, V "ArrLit"], E e:_:Pt  (_, I i, _):rest) -> 
             let newFargs = FunArgs [LitExp {lit= LI i}, e] 
             in logStack (newFargs:rest) 3
-         ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt (StreamToken (_, I i)):rest) -> 
+         ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt (_, I i, _):rest) -> 
             let newFargs = FunArgs $ LitExp {lit= LI i} : lits 
             in logStack (newFargs:rest) 3
          ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
@@ -461,7 +461,7 @@ ruleFuncs input stack =
             let arrLit = E $ ArrLit [l]
             in logStack (arrLit:rest) 3
          -- Var Instantiation
-         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt (_, Str ident, _):_:rest) -> 
             let varInst = Ps $ VarInst ident rhs 
             in logStack (varInst:rest) 5
          -- Double EqualSign 
@@ -481,7 +481,7 @@ ruleFuncs input stack =
             let arrLit = E $ ArrLit lits
             in logStack (arrLit:rest) 3
          -- Var Instantiation
-         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(_, Str ident, _):_:rest) -> 
             let varInst = Ps $ VarInst ident rhs 
             in logStack (varInst:rest) 5
          -- Double EqualSign 
@@ -496,7 +496,7 @@ ruleFuncs input stack =
             let range = E (Range l r) in
             logStack (range:rest) 4
          -- for-loops
-         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Exp", T LeftArrow], _:E body:_:E iter:_:Pt(StreamToken (_, Str ident)):_:rest) -> 
+         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Exp", T LeftArrow], _:E body:_:E iter:_:Pt(_, Str ident, _):_:rest) -> 
             let floop = Ps (ForLoop ident iter body) in
             logStack (floop:rest) 7
          -- if-then-else statement
@@ -530,10 +530,10 @@ ruleFuncs input stack =
             let (pms, rest) = types stack in 
             logStack (pms:rest) 5
 -- for not params and only a return type
-         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:E e: _: Pt (StreamToken (_, Str name)):rest) -> 
+         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:E e: _: Pt(_, Str name, _):rest) -> 
             logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
 -- for multiple params
-         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:FunParams fps: _: Pt (StreamToken (_, Str name)):rest) -> 
+         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:FunParams fps: _: Pt(_, Str name, _):rest) -> 
             let (ret, pms) = case reverse fps of 
                     ((_,rt): ps) -> (rt, ps)
                     [] -> ("Thunk", [])
@@ -544,7 +544,7 @@ ruleFuncs input stack =
             logStack (Pa (ast ++ f):rest) 2
          ([V "Ast"] ,Pa a:_) ->  
             logStack [Pa a] 1
-         ([T Let, T Ident, T Equal, V "Exp", T In] ,_:E e:_:Pt (StreamToken (_, Str str)):_:rest) ->  
+         ([T Let, T Ident, T Equal, V "Exp", T In] ,_:E e:_:Pt(_, Str str, loc):_:rest) ->  
             logStack (Ps (LetIn str e):rest)  5
          ([T LeftParen, V "Exp", T RightParen] ,_:(E e):_:rest) ->  
             logStack (E e:rest)  3
@@ -557,7 +557,7 @@ ruleFuncs input stack =
          ([V "Function"] ,Pa a:rest) ->  
             logStack (Pa a:rest) 1
          ([T Ident, T Colon, V "Types", V "Scope"] ,Ps scope:FunParams fps :_: Pt st:rest) ->  -- Function declarations
-            let StreamToken (_, Str fname) = st in
+            let  (_, Str fname, loc) = st in
             logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
          ([V "Scope", V "Stm"] ,Ps e:Ps (Scope a):rest) ->  
             logStack (Ps (Scope (a ++ [e])):rest) 2
@@ -587,14 +587,16 @@ ruleFuncs input stack =
             logStack (O Ast.Gte:rest) 1
          ([T Lexer.Gte] ,Pt _:rest) ->   
             logStack (O Ast.Eq:rest) 1
-         ([T Lexer.Ident] ,Pt ide:rest) ->  case ide of 
-            StreamToken (_, Str str) -> 
-                logStack (E IExp {ident=str}:rest) 1
-            _ -> error "wrong content of token"
-         ([T Lexer.Literal] ,Pt ide:rest) ->  case ide of 
-                StreamToken (_, I i) -> 
-                    logStack (E LitExp {lit= LI i}:rest) 1
-                _ -> error "wrong content of token"
+         ([T Lexer.Ident] ,Pt ide:rest) ->  
+            case ide of 
+                (_, Str str, lco) -> 
+                    logStack (E IExp {ident=str}:rest) 1
+                _ -> error $ "wrong content of token"
+         ([T Lexer.Literal] ,Pt ide:rest) ->  
+            case ide of 
+                    (_, I i, loc) -> 
+                        logStack (E LitExp {lit= LI i}:rest) 1
+                    _ -> error "wrong content of token"
          (r, ps) ->  throw $ MissingRule $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
 
 -------------------- Generating Grammar --------------------
@@ -623,34 +625,34 @@ parseAtom text
         V (unpack text)
     | otherwise = case unpack text of 
         "literal" -> T Literal 
-        "if" -> T If
-        "then" -> T Then 
-        "else" -> T Else
-        "ident" -> T Ident 
-        "plus" -> T Lexer.Plus 
-        "minus" -> T Lexer.Minus
-        "mult" -> T Lexer.Star
-        "slash" -> T Lexer.Slash
-        "return" -> T Lexer.Return
-        "(" -> T LeftParen 
-        ")" -> T RightParen
-        "[" -> T LeftSqBracket 
-        "]" -> T RightSqBracket
-        "let" -> T Let
-        "in" -> T In
-        "var" -> T Var
-        "=" -> T Equal 
-        ";" -> T SemiColon
-        ":" -> T Colon
-        "," -> T Comma
-        "->" -> T RightArrow 
-        "<-" -> T LeftArrow
-        "lt" -> T Lexer.Lt
-        "lte" -> T Lexer.Lte
-        "gt" -> T Lexer.Gt
-        "gte" -> T Lexer.Gte
-        "eq" -> T Lexer.Equal
-        "for" -> T For
-        "." -> T Dot
-        e -> error $ "mising data types to parse to for: " ++ e
+        "if"      -> T If
+        "then"    -> T Then 
+        "else"    -> T Else
+        "ident"   -> T Ident 
+        "plus"    -> T Lexer.Plus 
+        "minus"   -> T Lexer.Minus
+        "mult"    -> T Lexer.Star
+        "slash"   -> T Lexer.Slash
+        "return"  -> T Lexer.Return
+        "("       -> T LeftParen 
+        ")"       -> T RightParen
+        "["       -> T LeftSqBracket 
+        "]"       -> T RightSqBracket
+        "let"     -> T Let
+        "in"      -> T In
+        "var"     -> T Var
+        "="       -> T Equal 
+        ";"       -> T SemiColon
+        ":"       -> T Colon
+        ","       -> T Comma
+        "->"      -> T RightArrow 
+        "<-"      -> T LeftArrow
+        "lt"      -> T Lexer.Lt
+        "lte"     -> T Lexer.Lte
+        "gt"      -> T Lexer.Gt
+        "gte"     -> T Lexer.Gte
+        "eq"      -> T Lexer.Equal
+        "for"     -> T For
+        "."       -> T Dot
+        e         -> error $ "mising data types to parse to for: " ++ e
     

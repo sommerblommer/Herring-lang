@@ -1,5 +1,6 @@
-module Lexer (lexicalAnalysis, Token(..), StreamToken(..), Content(..)) where
+module Lexer (lexicalAnalysis, Token(..), StreamToken, Content(..)) where
 
+import Control.Monad.State
 
 data Token = 
      LeftParen
@@ -37,122 +38,114 @@ data Token =
     deriving (Show, Ord, Eq)
 
 data Content = Str String | I Int | Nop
-
-newtype StreamToken a = StreamToken (a, Content)
-
-
-instance Show a => Show (StreamToken a) where 
-    show (StreamToken (a, Str s)) = show a ++ " " ++ s 
-    show (StreamToken (a, I i)) = show a ++ " " ++ show i 
-    show (StreamToken (t, Nop)) = show t 
- 
-instance Functor StreamToken where 
-    fmap f (StreamToken (a, mc)) = StreamToken (f a , mc)
-instance Applicative StreamToken where 
-    pure a = StreamToken (a, Nop)
-    StreamToken (f, _) <*> StreamToken (a, b) = StreamToken (f a, b)
-
-newtype Incrementer a = Incrementer (a, Int)
     deriving (Show)
 
-instance Functor Incrementer where 
- fmap f (Incrementer (a, i)) = Incrementer (f a, i)
+type Location = (Int, Int)
 
-instance Applicative Incrementer where 
-    pure a = Incrementer (a, 1) 
-    Incrementer (f, u) <*> Incrementer (a, i) = Incrementer (f a, i + u) 
-
-instance Monad Incrementer where 
-    return = pure
-    Incrementer (a, i) >>= f = let Incrementer (b, j) = f a in Incrementer (b, i+j) 
+type StreamToken = (Token, Content, Location)
 
 
-step :: Incrementer () 
-step = return () 
 
 singleCharTokens :: String 
 singleCharTokens = ":()=+- ;\n,.*[]/<>"
 
---- >>> lexicalAnalysis "main(){\nx = 1;\nreturn x;\n}"
--- [Ident {ident = "main"},LeftParen,RightParen,LeftBracket,Ident {ident = "x"},Equal,Literal {num = 1},SemiColon,Ident {ident = "return"},Ident {ident = "x"},SemiColon,RightBreacket]
-lexicalAnalysis :: String -> [StreamToken Token]
-lexicalAnalysis =  helper 0 where 
-    helper :: Int -> String -> [StreamToken Token]
-    helper _ [] = []
-    helper toSkip s 
-        | null (drop toSkip s) = [] 
-        | otherwise = 
-            let (x:xs) = drop toSkip s in 
-            let Incrementer (token, inc) = findToken x xs in 
-            token : helper (toSkip + inc) s
+lexicalAnalysis :: String -> IO [StreamToken]
+lexicalAnalysis =  helper (1,1) where 
+    helper :: Location -> String -> IO [StreamToken]
+    helper _ [] = return []
+    helper startLoc (x:xs) = do
+            let (token, (tokenLength, newLoc)) = runState (findToken x xs) (0, startLoc)   
+            let tokenLoc = (snd newLoc, fst newLoc - tokenLength)
+            -- print newLoc
+            -- print $ show token ++ show tokenLength
+            rest <- helper newLoc $ drop  tokenLength (x:xs)
+            return $ updateLoc tokenLoc token : rest
 
 
+simpleToken :: Token -> StreamToken 
+simpleToken t = (t, Nop, (1,1))
 
+updateLoc :: Location -> StreamToken -> StreamToken 
+updateLoc loc (a, b, _) = (a, b, loc) 
 
---- >>> findToken 'l' "eta = " 
--- Incrementer (Let,3)
-findToken :: Char -> String -> Incrementer (StreamToken Token)
-findToken ',' _ = return $ pure Comma
-findToken ';' _ = return $ pure SemiColon 
-findToken '(' _ = return $ pure LeftParen  
-findToken ')' _ = return $ pure RightParen  
-findToken '{' _ = return $ pure LeftBracket  
-findToken '}' _ = return $ pure RightBreacket  
-findToken '[' _ = return $ pure LeftSqBracket  
-findToken ']' _ = return $ pure RightSqBracket  
-findToken '=' _ = return $ pure Equal
-findToken '+' _ = return $ pure Plus
-findToken '*' _ = return $ pure Star
-findToken '/' _ = return $ pure Slash
-findToken ':' _ = return $ pure Colon
-findToken '.' _ = return $ pure Dot
+step ::State (Int, Location) () 
+step = do
+    (len, (cols, loc)) <- get
+    put (len + 1, (cols + 1, loc))
+newLine :: State (Int, Location) () 
+newLine = do 
+    (len, (_, lns)) <- get
+    put (len + 1, (1, lns + 1))
+end :: State (Int, Location) () 
+end = put (1000, (0, 0))
+
+--- >>> runState (findToken 'h' "ead : ") (1,1) 
+-- ((Ident,Str "head",(0,0)),(5,1))
+findToken :: Char -> String -> State (Int, Location) StreamToken 
+findToken ',' _ = step >> return (simpleToken Comma)
+findToken ';' _ = step >> return (simpleToken SemiColon)
+findToken '(' _ = step >> return (simpleToken LeftParen  )
+findToken ')' _ = step >> return (simpleToken RightParen  )
+findToken '{' _ = step >> return (simpleToken LeftBracket  )
+findToken '}' _ = step >> return (simpleToken RightBreacket  )
+findToken '[' _ = step >> return (simpleToken LeftSqBracket  )
+findToken ']' _ = step >> return (simpleToken RightSqBracket  )
+findToken '=' _ = step >> return (simpleToken Equal)
+findToken '+' _ = step >> return (simpleToken Plus)
+findToken '*' _ = step >> return (simpleToken Star)
+findToken '/' _ = step >> return (simpleToken Slash)
+findToken ':' _ = step >> return (simpleToken Colon)
+findToken '.' _ = step >> return (simpleToken Dot)
 findToken '-' (x:_) 
-    | x == '>' =  step >> (return $ pure RightArrow)
-    | otherwise = return $ pure Minus 
+    | x == '>' = do 
+        step
+        step
+        return $ simpleToken RightArrow
+    | otherwise = return $ simpleToken Minus 
 findToken '>' (x:y:ys) 
-    | x == '=' =  step >> (return $ pure Gte)
-    | otherwise = return $ pure Gt 
+    | x == '=' = step >> step >> return (simpleToken Gte)
+    | otherwise = step >> return (simpleToken Gt)
 findToken '<' (x:y:ys) 
-    | x == '=' = step >> (return $ pure Lte)
-    | x == ' ' = return $ pure Lt 
-    | x == '-' = step >> (return $ pure LeftArrow)
+    | x == '=' = step >> step >> return ( simpleToken Lte)
+    | x == ' ' = step >> step >> return ( simpleToken Lt)
+    | x == '-' = step >> step >> return ( simpleToken LeftArrow)
     | otherwise = checkIdentForReserved <$> findIdent "" '<' (x:y:ys) 
-findToken '\n' (x:xs) = step >> findToken x xs
-findToken '\n' [] = return $ pure EOF
-findToken '\t' (x:xs) = step >> findToken x xs
-findToken ' ' (x:xs) = step >> findToken x xs
-findToken '-' _ = return $ pure Minus
+findToken '\n' (x:xs) = newLine >> findToken x xs
+findToken '\n' [] =  end >> return (simpleToken EOF)
+findToken '\t' (x:xs) = replicateM_ 4 step >> findToken x xs
+findToken ' '  (x:xs) = step >> findToken x xs
+findToken '-' _ = step >> return (simpleToken Minus)
 findToken c xs 
     | c `elem` ['0'..'9'] = identToLit <$> findIdent "" c xs
     | otherwise = checkIdentForReserved <$> findIdent "" c xs
 
-identToLit :: StreamToken Token -> StreamToken Token 
-identToLit (StreamToken (Ident, Str s))= StreamToken (Literal, I $ read s)
+identToLit :: StreamToken -> StreamToken 
+identToLit (Ident, Str s, loc) = (Literal, I $ read s, loc)
 identToLit a = a 
 
-checkIdentForReserved :: StreamToken Token -> StreamToken Token 
-checkIdentForReserved (StreamToken (Ident, Str "->")) = pure RightArrow
-checkIdentForReserved (StreamToken (Ident, Str "<-")) = pure RightArrow
-checkIdentForReserved (StreamToken (Ident, Str ">=")) = pure Gte
-checkIdentForReserved (StreamToken (Ident, Str "<=")) = pure Lte
-checkIdentForReserved (StreamToken (Ident, Str "<")) = pure Lt
-checkIdentForReserved (StreamToken (Ident, Str ">")) = pure Gt
-checkIdentForReserved (StreamToken (Ident, Str "-")) = pure Minus
-checkIdentForReserved (StreamToken (Ident, Str "let")) = pure Let
-checkIdentForReserved (StreamToken (Ident, Str "in")) = pure In
-checkIdentForReserved (StreamToken (Ident, Str "var")) = pure Var
-checkIdentForReserved (StreamToken (Ident, Str "return")) = pure Return
-checkIdentForReserved (StreamToken (Ident, Str "if")) = pure If
-checkIdentForReserved (StreamToken (Ident, Str "then")) = pure Then
-checkIdentForReserved (StreamToken (Ident, Str "else")) = pure Else
-checkIdentForReserved (StreamToken (Ident, Str "for")) = pure For
+checkIdentForReserved :: StreamToken -> StreamToken 
+checkIdentForReserved (Ident, Str "->",     _) = simpleToken RightArrow
+checkIdentForReserved (Ident, Str "<-",     _) = simpleToken LeftArrow
+checkIdentForReserved (Ident, Str ">=",     _) = simpleToken Gte
+checkIdentForReserved (Ident, Str "<=",     _) = simpleToken Lte
+checkIdentForReserved (Ident, Str "<",      _) = simpleToken Lt
+checkIdentForReserved (Ident, Str ">",      _) = simpleToken Gt
+checkIdentForReserved (Ident, Str "-",      _) = simpleToken Minus
+checkIdentForReserved (Ident, Str "let",    _) = simpleToken Let
+checkIdentForReserved (Ident, Str "in",     _) = simpleToken In
+checkIdentForReserved (Ident, Str "var",    _) = simpleToken Var
+checkIdentForReserved (Ident, Str "return", _) = simpleToken Return
+checkIdentForReserved (Ident, Str "if",     _) = simpleToken If
+checkIdentForReserved (Ident, Str "then",   _) = simpleToken Then
+checkIdentForReserved (Ident, Str "else",   _) = simpleToken Else
+checkIdentForReserved (Ident, Str "for",    _) = simpleToken For
 checkIdentForReserved a = a
 
-findIdent :: String -> Char -> String -> Incrementer (StreamToken Token)
-findIdent acc c [] = return $ StreamToken (Ident, Str $ reverse (c:acc))
-findIdent acc ' ' _ = return $ StreamToken (Ident,  Str $ reverse acc)
+findIdent :: String -> Char -> String -> State (Int, Location) StreamToken 
+findIdent acc c [] = step >> return (Ident, Str $ reverse (c:acc), (0,0))
+findIdent acc ' ' _ = step >> return (Ident,  Str $ reverse acc, (0,0))
 findIdent acc c (x:xs) 
-    | x `elem` singleCharTokens = return $ StreamToken ( Ident, Str $ reverse (c:acc))
-    | otherwise = return c >> findIdent (c:acc) x xs
+    | x `elem` singleCharTokens = step >> return (Ident, Str $ reverse (c:acc), (0,0))
+    | otherwise = step >> findIdent (c:acc) x xs
 
 
