@@ -62,25 +62,25 @@ getTypeOfExpr _ (TAST.Length _ t) = t
 getTypeOfExpr _ (TAST.ArrLit _ t) = t
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
-typeCheckExpr _ LitExp {lit = LI i} = (TAST.Literal {tLit = TLI i}, IntType)
-typeCheckExpr _ LitExp {lit = LB i} = (TAST.Literal {tLit = TLB i}, IntType)
-typeCheckExpr env IExp {ident = str} = 
+typeCheckExpr _ (LitExp (LI i) _) = (TAST.Literal {tLit = TLI i}, IntType)
+typeCheckExpr _ (LitExp (LB i) _) = (TAST.Literal {tLit = TLB i}, IntType)
+typeCheckExpr env (IExp str loc) = 
     let lup = vars env DM.!? str in 
     case lup of 
         Just t -> (Ident str t, t)
-        Nothing -> throw $ MissingVar $ "variable: " ++ str ++ " has not been defined"
-typeCheckExpr env Ast.BinOp {lhs=l, op=operator, rhs=r} = 
+        Nothing -> throw $ MissingVar $ "variable: " ++ str ++ ", at: " ++ show loc ++ " has not been defined"
+typeCheckExpr env (Ast.BinOp l operator r loc) = 
     let (leftExp, ltyp) = typeCheckExpr env l in
     let (rightExp, rtyp) = typeCheckExpr env r in
     let opType = typeOfFunction operator in
     if ltyp == rtyp then 
         (TAST.BinOp leftExp (astOpToTASTOp operator) rightExp opType, opType)
     else 
-    throw $ MissingVar $ "type mismatch\nleft side: " ++ show ltyp ++ "\nright side: " ++ show rtyp 
-typeCheckExpr env (Ast.FunCall fvar args) = 
+    throw $ MissingVar $ "type mismatch at: " ++ show loc ++ "\nleft side: " ++ show ltyp ++ "\nright side: " ++ show rtyp 
+typeCheckExpr env (Ast.FunCall fvar args floc) = 
     let (fname, paramTyps) = case fvar of 
-            (IExp {ident = ide} ) -> lookupFunc env ide
-            _ -> throw $ FunCallException $ show fvar ++ " not a valid function call"
+            (IExp ide _ ) -> lookupFunc env ide
+            _             -> throw $ FunCallException $ show fvar ++ " not a valid function call at: " ++ show floc
     in
     let typedArgs = Data.List.map (\(arg, pType) -> 
                 let (typeArg, typ) = typeCheckExpr env arg in
@@ -92,25 +92,25 @@ typeCheckExpr env (Ast.FunCall fvar args) =
     if fname == "length" then (TAST.Length (head typedArgs) rType, rType)
     else (TAST.FunCall (Ident fname rType) typedArgs rType, rType) 
 
-typeCheckExpr env (Ast.Range start end) = 
+typeCheckExpr env (Ast.Range start end _) = 
     let tstart = assertType env start TAST.IntType in
     let tend = assertType env end TAST.IntType in
     (TAST.Range tstart tend, TAST.IntType)
 
-typeCheckExpr env (Ast.Closure stm) = 
+typeCheckExpr env (Ast.Closure stm _) = 
     let (typedStm, _) = runState (typeCheckStm stm) env  in
     (TAST.Closure typedStm IntType, IntType)
 
-typeCheckExpr env (Ast.ArrLit lits) = 
+typeCheckExpr env (Ast.ArrLit lits loc) = 
     let (texps, typs) = unzip $ Prelude.foldl (\acc lit -> typeCheckExpr env lit : acc) [] lits 
     in let fall = all (\t -> t == head typs) typs
     in if fall 
         then (TAST.ArrLit texps (Pointer $ head typs), Pointer $ head typs)
-        else throw $ TypeE "types in array literal are not the same"
+        else throw $ TypeE $ "types in array literal are not the same at: " ++ show loc
 
-typeCheckExpr env (Ast.ArrLookUp arr lup) = 
+typeCheckExpr env (Ast.ArrLookUp arr lup loc) = 
     let foo (Pointer t) = t 
-        foo _ = throw $ TypeE "not a pointer"
+        foo _ = throw $ TypeE $ "lookup at: " ++ show loc ++ " is not at pointer"
     in
     let tlup = assertType env lup IntType 
     in let (lexpr, lt) = typeCheckExpr env arr 
@@ -128,13 +128,17 @@ assertType env expr (Pointer _) =
         _ -> throw $ TypeE "wrong type"
 assertType env expr typ = 
     let (texp, exptyp) = typeCheckExpr env expr in 
-    if exptyp == typ then texp else throw $ TypeE "wrong type"
-
+    if exptyp == typ 
+        then texp 
+        else throw $ TypeE $ "wrong type\nExpected: " 
+                             ++ show typ 
+                             ++ "\nActual: " 
+                             ++ show exptyp
 
 
 
 typeCheckStm :: Ast.Stm -> State Env TAST.Stm
-typeCheckStm (Ast.ForLoop ident iter body) = do
+typeCheckStm (Ast.ForLoop ident iter body _) = do
     env <- get 
     let (iterExp, titer) = typeCheckExpr env iter 
 
@@ -143,33 +147,30 @@ typeCheckStm (Ast.ForLoop ident iter body) = do
     let (bexp, _) = typeCheckExpr newenv body 
     return $ TAST.ForLoop ident iterExp bexp titer
 
-typeCheckStm (Ast.LetIn str expr) = do
+typeCheckStm (Ast.LetIn str expr _) = do
     env <- get 
     let (texpr, exprtype) = typeCheckExpr env expr 
     modify (insertIntoEnv str exprtype) 
     return $ TAST.LetIn str texpr exprtype
-typeCheckStm (Ast.Scope stms) = do
-    a <- mapM typeCheckStm stms
-    return $ TAST.Scope a
-typeCheckStm  (Ast.Return expr) = do
+
+typeCheckStm (Ast.Scope stms) = TAST.Scope <$> mapM typeCheckStm stms
+
+typeCheckStm  (Ast.Return expr _) = do
     env <- get
     let (texpr, exprtype) = typeCheckExpr env expr 
     return $ TAST.Return texpr exprtype
-typeCheckStm  (Ast.Exp expr) = do 
+typeCheckStm  (Ast.Exp expr _) = do 
     env <- get 
     let (texpr, exprtype) = typeCheckExpr env expr
     return $ TAST.StmExpr texpr exprtype
-typeCheckStm  (Ast.IfThenElse cond th el) = do 
+typeCheckStm  (Ast.IfThenElse cond th el _) = do 
     env <- get
-    let (tcnd, ctyp) = typeCheckExpr env cond 
-    if ctyp /= BoolType then
-        throw $ TypeE "if condition not is not a boolean"
-    else do 
-        let (thexp, _) = typeCheckExpr env th  
-        let (elexp, _) = typeCheckExpr env el  
-        return $ TAST.IfThenElse tcnd thexp elexp
+    let tcnd = assertType env cond BoolType 
+    let (thexp, _) = typeCheckExpr env th  
+    let (elexp, _) = typeCheckExpr env el  
+    return $ TAST.IfThenElse tcnd thexp elexp
 
-typeCheckStm  (Ast.VarInst varIdent bd) = do 
+typeCheckStm  (Ast.VarInst varIdent bd _) = do 
     env <- get
     let (texpr, exprtype) = typeCheckExpr env bd
     modify $ insertIntoEnv varIdent exprtype 

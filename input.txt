@@ -1,8 +1,9 @@
-head : (e : Int) -> Int 
-    return e
+head : (e : [Int]) -> Int 
+    return e[0]
 
 
 main : Int 
-    let h = head(3)
-    in let _ = print(h)
+    let h = head([7,2,1])
+    in if read() == 1 then print(true) else print (2)
+    let _ = print(h)
     in return 0

@@ -3,27 +3,33 @@ import Data.List (uncons)
 
 data Lit = LI Int | LB Bool 
 
+instance Show Lit where 
+    show (LI i) = show i
+    show (LB b) = show b
+
 data Op = Plus | Minus | Mult | Div | Lt | Lte | Gt | Gte | Eq
 type Ast = [Function]
 
+type Location = (Int, Int)
+
 data Expr = 
-    LitExp {lit :: Lit}
-    | IExp {ident :: String}
-    | BinOp {lhs :: Expr, op :: Op, rhs :: Expr}
-    | FunCall Expr [Expr] -- First expression has to be an ident
-    | Range Expr Expr
-    | Closure Stm 
-    | ArrLit [Expr]
-    | ArrLookUp Expr Expr
+    LitExp Lit Location
+    | IExp String Location
+    | BinOp Expr Op Expr Location
+    | FunCall Expr [Expr] Location -- First expression has to be an ident
+    | Range Expr Expr Location
+    | Closure Stm  Location
+    | ArrLit [Expr] Location
+    | ArrLookUp Expr Expr Location
 
 data Stm = 
-    LetIn String Expr 
-    | VarInst String Expr
-    | ForLoop String Expr Expr -- for $string in $iter $body
-    | Return Expr
-    | Scope [Stm]
-    | IfThenElse Expr Expr Expr
-    | Exp Expr
+    LetIn String Expr  Location
+    | VarInst String Expr Location
+    | ForLoop String Expr Expr Location -- for $string in $iter $body
+    | Return Expr Location
+    | Scope [Stm] 
+    | IfThenElse Expr Expr Expr Location
+    | Exp Expr Location
 
 data Function = Function {funName :: String, params :: [(String, String)], body :: Stm, returnType :: String}
     deriving (Show)
@@ -46,29 +52,29 @@ instance Show Op where
     show Eq = "=="
 
 instance Show Expr where
-    show IExp {ident=s} = s 
-    show LitExp {lit=LI i} =  show i
-    show LitExp {lit=LB b} =  show b
-    show BinOp {lhs=l, op=o, rhs=r} = "(" ++ show l ++ show o ++ show r ++ ")"
-    show (FunCall fname args) =
+    show (IExp s _) = s 
+    show (LitExp  i _) =  show i
+    show (LitExp  b _) =  show b
+    show (BinOp l o r _) = "(" ++ show l ++ show o ++ show r ++ ")"
+    show (FunCall fname args _) =
         let argString = foldl (\acc e -> show e ++ " " ++ acc) "" args in
         show fname ++ "(" ++ argString ++ ")" 
-    show (Range l r) = show l ++ ".." ++ show r
-    show (Closure stm) = "(" ++ show stm ++ ")" 
-    show (ArrLit exps) = 
+    show (Range l r _) = show l ++ ".." ++ show r
+    show (Closure stm _) = "(" ++ show stm ++ ")" 
+    show (ArrLit exps _) = 
         let argString = foldl (\acc e -> show e ++ " " ++ acc) "" exps in
         "[" ++ argString ++ "]" 
 
-    show (ArrLookUp lhs rhs) = show lhs ++ "[" ++ show rhs ++ "]" 
+    show (ArrLookUp lhs rhs _) = show lhs ++ "[" ++ show rhs ++ "]" 
 
 instance Show Stm where 
-    show (LetIn str expr) = "let " ++ str ++ " = " ++ show expr ++ " in"
-    show (VarInst str expr) = "var " ++ str ++ " = " ++ show expr ++ ";"
-    show (ForLoop ident iter body) = "for " ++ ident ++ " in " ++ show iter ++ " " ++ show body 
-    show (Return e) = "return " ++ show e
+    show (LetIn str expr _) = "let " ++ str ++ " = " ++ show expr ++ " in"
+    show (VarInst str expr _) = "var " ++ str ++ " = " ++ show expr ++ ";"
+    show (ForLoop ident iter body _) = "for " ++ ident ++ " in " ++ show iter ++ " " ++ show body 
+    show (Return e _) = "return " ++ show e
     show (Scope stms) = foldl (\acc s -> acc ++ " " ++show s) "" stms
-    show (IfThenElse cond th el) = "if " ++ show cond ++ " then " ++ show th ++ " else " ++ show el
-    show (Exp ex) = show ex
+    show (IfThenElse cond th el _) = "if " ++ show cond ++ " then " ++ show th ++ " else " ++ show el
+    show (Exp ex _) = show ex
 
 
 intToChar :: Int -> Char 
@@ -104,13 +110,13 @@ stmHelper (x:xs) =
 
 
 prettyPrintStm :: Stm -> String 
-prettyPrintStm (Exp e) = prettyPrintExpr 0 [0] e 
+prettyPrintStm (Exp e _) = prettyPrintExpr 0 [0] e 
 prettyPrintStm (Scope stms) ="Scope\n" ++ stmHelper stms
-prettyPrintStm (Return e) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
-prettyPrintStm (LetIn str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
-prettyPrintStm (VarInst str ex) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
-prettyPrintStm (ForLoop ident iter body) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ prettyPrintExpr 4 [0] body
-prettyPrintStm (IfThenElse cond th el) = 
+prettyPrintStm (Return e _) = "Return\n\9492\9472" ++ prettyPrintExpr  2 [] e
+prettyPrintStm (LetIn str ex _) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
+prettyPrintStm (VarInst str ex _) = "let\n\9500\9472ident " ++ str ++ "\n\9492\9472Exp " ++ prettyPrintExpr 2 [] ex
+prettyPrintStm (ForLoop ident iter body _) =  "for\n\9500\9472ident : " ++ ident ++ "\n\9500\9472iter\n\9474 \9492\9472" ++ prettyPrintExpr 4 [0] iter ++ "\9500\9472body\n" ++ prettyPrintExpr 4 [0] body
+prettyPrintStm (IfThenElse cond th el _) = 
     "if\n\9500\9472 " ++ prettyPrintExpr 2 [0] cond 
     ++ "\9500\9472then " ++ prettyPrintExpr 2 [0] th 
     ++ "\9500\9472else " ++ prettyPrintExpr 2 [] el
@@ -124,10 +130,10 @@ makeSpaces a [] = replicate a ' '
 makeSpaces a xs = replicate (a - head xs) ' '
 
 prettyPrintExpr :: Int -> [Int] -> Expr -> String
-prettyPrintExpr _ _ LitExp {lit= LI l} = "Literal " ++ show l ++ "\n"
-prettyPrintExpr _ _ LitExp {lit= LB l} = "Literal " ++ show l ++ "\n"
-prettyPrintExpr _ _  IExp {ident=ide} = "ident " ++ ide ++ "\n"
-prettyPrintExpr indent xs (Range l r) = 
+prettyPrintExpr _ _ (LitExp  l _) = "Literal " ++ show l ++ "\n"
+prettyPrintExpr _ _ (LitExp  l _) = "Literal " ++ show l ++ "\n"
+prettyPrintExpr _ _  (IExp  id _) = "ident " ++ id ++ "\n"
+prettyPrintExpr indent xs (Range l r _) = 
     let start = "Range\n" in
     let indents = makeIndents 0 xs in 
     let restSpaces = makeSpaces indent xs in
@@ -135,7 +141,7 @@ prettyPrintExpr indent xs (Range l r) =
     let r' = indents ++ restSpaces ++ "\9492" ++  "\9472" in
     start ++ l' ++  prettyPrintExpr (indent + 1) (indent : xs) l 
     ++ r' ++ prettyPrintExpr (indent + 2) xs r
-prettyPrintExpr indent xs  BinOp {lhs=l, op=o, rhs=r} = 
+prettyPrintExpr indent xs  (BinOp l o r _) = 
     let start = "BinOp : " ++ show o ++"\n" in
     let indents = makeIndents 0 xs in 
     let restSpaces = makeSpaces indent xs in
@@ -143,7 +149,7 @@ prettyPrintExpr indent xs  BinOp {lhs=l, op=o, rhs=r} =
     let r' = indents ++ restSpaces ++ "\9492" ++  "\9472" in
     start ++ l' ++  prettyPrintExpr (indent + 1) (indent : xs) l 
     ++ r' ++ prettyPrintExpr (indent + 2) xs r
-prettyPrintExpr indent xs (FunCall fname args) = 
+prettyPrintExpr indent xs (FunCall fname args _) = 
     let start = "FunCall : " ++ "\n" in 
     let indents = makeIndents 0 xs in 
     let restSpaces = makeSpaces indent xs in 
@@ -160,11 +166,11 @@ prettyPrintExpr indent xs (FunCall fname args) =
                                         ) end restArgs  in
     start ++ l ++  name ++ argString 
 
-prettyPrintExpr _ _ (Closure stm) = 
+prettyPrintExpr _ _ (Closure stm _) = 
     let start = "Closure : " ++ "\n" in 
     start ++ stmHelper [stm]
 
-prettyPrintExpr indent xs (ArrLit exps) = 
+prettyPrintExpr indent xs (ArrLit exps _) = 
     let start = "ArrLit : " ++ "\n" in 
     let indents = makeIndents 0 xs in 
     let restSpaces = makeSpaces indent xs in 
@@ -180,7 +186,7 @@ prettyPrintExpr indent xs (ArrLit exps) =
                                         ) end restArgs  in
     start ++ l ++ argString 
 
-prettyPrintExpr indent xs (ArrLookUp lhs rhs) =
+prettyPrintExpr indent xs (ArrLookUp lhs rhs _) =
     let start = "ArrLookUp : " ++"\n" in
     let indents = makeIndents 0 xs in 
     let restSpaces = makeSpaces indent xs in

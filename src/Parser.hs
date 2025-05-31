@@ -1,6 +1,6 @@
 module Parser (parse) where 
 import Data.Set as Set
-import Lexer (Token(..), StreamToken, Content(..))
+import Lexer (Token(..), StreamToken(..), Content(..))
 import qualified Data.Map.Strict as Dm
 import Data.Maybe (catMaybes)
 import Ast 
@@ -329,7 +329,7 @@ parse v tokens = do
 
 
 action :: Grammar -> [State] -> ParseStack ->  [StreamToken] -> Writer [String] ParseStack 
-action g (state:stateStack) ps (st@(t, _, _):tokens) =  do
+action g (state:stateStack) ps (st:tokens) =  do
     tell ["stack snapshot: " ++ show ps]
     let (nextAction, p) = findAction state st  
     case nextAction of 
@@ -339,7 +339,7 @@ action g (state:stateStack) ps (st@(t, _, _):tokens) =  do
             let nextStatet = (let pts = possibleTs Dm.!? state in 
                                 case pts of 
                                 Nothing -> error "no possible state"
-                                Just res -> res) Dm.!? T t  
+                                Just res -> res) Dm.!? T (token st)  
             case nextStatet of 
                 Nothing -> error "in shift cant find next state"
                 Just nexState ->
@@ -368,15 +368,15 @@ canBeReduced :: Position -> Token -> Bool
 canBeReduced p st = st `elem` followSet p
 
 findAction :: State ->  StreamToken -> (Action, Position) 
-findAction state (token, _, loc) = 
-    if isAccepting state token then (Accept, startPosition) else 
+findAction state st = 
+    if isAccepting state (token st) then (Accept, startPosition) else 
     let (s, r) = bimap catMaybes  catMaybes $ Set.foldl (\(acc, acc2) p -> 
-                            if length (rule p) == pos p && canBeReduced p token then  
+                            if length (rule p) == pos p && canBeReduced p (token st) then  
                                 (acc, Just p:acc2)
                             else 
                                 let res = rule p !? pos p >>= 
                                         (\t ->
-                                            if t == T token then 
+                                            if t == T (token st) then 
                                                 Just p
                                             else 
                                                 Nothing
@@ -388,8 +388,8 @@ findAction state (token, _, loc) =
     case (s, r) of 
         (p:_, []) -> (Shift, p)
         ([],  p:_) -> (Reduce, p)
-        (p:_, p2:_) -> throw $ ShiftReduce $ "Shift/Reduce at: " ++ show loc ++ " in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show token
-        (_ , _) -> throw $ FindAction $ "undefined at: " ++ show loc ++ " in findAction\nstate: " ++ prettyState 0 state ++ "\n: " ++ show token
+        (p:_, p2:_) -> throw $ ShiftReduce $ "Shift/Reduce at: " ++ show (loc st) ++ " in\n" ++ prettyState 0 state ++ "\n" ++ pretty p ++ "\n" ++ pretty p2 ++ "\non stack: " ++ show (token st)
+        (_ , _) -> throw $ FindAction $ "undefined at: " ++ show (loc st) ++ " in findAction\nstate: " ++ prettyState 0 state ++ "\n: " ++ show (token st)
 
 isAccepting :: State -> Token -> Bool
 isAccepting state t  
@@ -410,7 +410,7 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr | Pa Ast | FunParams [(String, String)] | FunArgs [Expr]
+data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr Location | Pa Ast | FunParams [(String, String)] | FunArgs [Expr]
     deriving (Show)
 type ParseStack = [ParseItem]
 
@@ -421,19 +421,19 @@ logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
 types :: ParseStack -> (ParseItem, ParseStack)
 types ps = 
     let typ a = case a of 
-            E (Ast.IExp s) -> s 
-            Pt (_, Str t, _) -> t
+            (E (Ast.IExp s _) _) -> s 
+            (Pt StreamToken {content=Str t}) -> t
             _ -> throw $ TypeNotParsed $ show a
 
     in case ps of 
 
-        (_:tToken:_:Pt (_, Str var,_):_:_:FunParams pms:rest) ->
+        (_:tToken:_:Pt StreamToken {content = Str var}:_:_:FunParams pms:rest) ->
             (FunParams ((var, typ tToken):pms), rest)
 
-        (_:tToken:_:Pt  (_, Str var, _):_:rest) ->
+        (_:tToken:_:Pt StreamToken {content = Str var}:_:rest) ->
             (FunParams [(var, typ tToken)], rest)
 
-        (Pt (_, Str retType, _):_:FunParams pms:rest) -> 
+        (Pt StreamToken {content = Str retType}:_:FunParams pms:rest) -> 
             let fpms = FunParams . reverse $ ("", retType):pms in
             (fpms, rest)
 
@@ -443,81 +443,83 @@ ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
          -- in types 
-         ([T LeftSqBracket, T Ident, T RightSqBracket], _:Pt ( (c, Str typ, loc)):_:rest ) -> 
-                 logStack (Pt(c, Str $ "ptr " ++ typ, loc):rest) 3
-         ([V "Exp", T LeftSqBracket, V "Exp", T RightSqBracket], _:E lup:_:E lhs:rest) -> 
-            let arrLup = E $ ArrLookUp lhs lup 
-            in logStack (arrLup:rest) 4
-         ([T Literal, T Comma, V "ArrLit"], E e:_:Pt  (_, I i, _):rest) -> 
-            let newFargs = FunArgs [LitExp {lit= LI i}, e] 
+         ([T LeftSqBracket, T Ident, T RightSqBracket], _:Pt st@StreamToken {content = Str typ}:_:rest ) -> 
+                 logStack (Pt StreamToken {token = token st, content = Str $ "ptr " ++ typ, loc = loc st}:rest) 3
+         ([V "Exp", T LeftSqBracket, V "Exp", T RightSqBracket], _:E lup _:_:E lhs loc:rest) -> 
+            let arrLup = E $ ArrLookUp lhs lup loc
+            in logStack (arrLup loc:rest) 4
+         ([T Literal, T Comma, V "ArrLit"], E e _:_:Pt st@StreamToken {content = I i}:rest) -> 
+            let newFargs = FunArgs [LitExp (LI i) $ loc st, e] 
             in logStack (newFargs:rest) 3
-         ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt (_, I i, _):rest) -> 
-            let newFargs = FunArgs $ LitExp {lit= LI i} : lits 
+         ([T Literal, T Comma, V "ArrLit"], FunArgs lits:_:Pt st@StreamToken {content = I i}:rest) -> 
+            let newFargs = FunArgs $ LitExp (LI i) (loc st) : lits 
             in logStack (newFargs:rest) 3
-         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
-            let arrLit = E $ ArrLit $ reverse lits
-            in logStack (arrLit:rest) 3
-         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:E l:_:rest) -> 
-            let arrLit = E $ ArrLit [l]
-            in logStack (arrLit:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:Pt st:rest) -> 
+            let arrLit = E $ ArrLit (reverse lits) $ loc st
+            in logStack (arrLit (loc st):rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:E l _:Pt st:rest) -> 
+            let arrLit = E $ ArrLit [l] $ loc st
+            in logStack (arrLit (loc st):rest) 3
          -- Var Instantiation
-         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt (_, Str ident, _):_:rest) -> 
-            let varInst = Ps $ VarInst ident rhs 
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs _:_:Pt st@StreamToken {content = Str ident}:_:rest) -> 
+            let varInst = Ps $ VarInst ident rhs $ loc st
             in logStack (varInst:rest) 5
          -- Double EqualSign 
          ([T Equal, T Equal], _:_:rest) -> 
             logStack (O Eq:rest) 2
          -- Closure 
-         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
-            let clos = E (Closure scope) in
+         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:Pt lp:rest) -> 
+            let clos = E (Closure scope $ loc lp) $ loc lp in
             logStack (clos:rest) 3
-         ([V "Exp", T Comma, V "ArrLit"], E e:_:E r:rest) -> 
+         ([V "Exp", T Comma, V "ArrLit"], E e _:_:E r _:rest) -> 
             let newFargs = FunArgs $ [e, r] 
             in logStack (newFargs:rest) 3
-         ([V "Exp", T Comma, V "ArrLit"], E e:_:FunArgs lits:rest) -> 
+         ([V "Exp", T Comma, V "ArrLit"], E e _:_:FunArgs lits:rest) -> 
             let newFargs = FunArgs $ e:lits 
             in logStack (newFargs:rest) 3
-         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:_:rest) -> 
-            let arrLit = E $ ArrLit lits
-            in logStack (arrLit:rest) 3
+         ([T LeftSqBracket, V "ArrLit", T RightSqBracket], _:FunArgs lits:Pt lsq:rest) -> 
+            let l = loc lsq in
+            let arrLit = E $ ArrLit lits l
+            in logStack (arrLit l :rest) 3
          -- Var Instantiation
-         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs:_:Pt(_, Str ident, _):_:rest) -> 
-            let varInst = Ps $ VarInst ident rhs 
+         ([T Var, T Ident, T Equal, V "Exp", T SemiColon], _:E rhs _:_:Pt StreamToken {content = Str ident, loc=l}:_:rest) -> 
+            let varInst = Ps $ VarInst ident rhs l
             in logStack (varInst:rest) 5
          -- Double EqualSign 
          ([T Equal, T Equal], _:_:rest) -> 
             logStack (O Eq:rest) 2
          -- Closure 
-         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:_:rest) -> 
-            let clos = E (Closure scope) in
+         ([T LeftParen, V "Scope", T RightParen], _:Ps scope:Pt lp:rest) -> 
+            let l = loc lp in
+            let clos = E (Closure scope l) l in
             logStack (clos:rest) 3
          -- range
-         ([V "Exp", T Dot, T Dot, V "Term"], E r:_:_:E l:rest) -> 
-            let range = E (Range l r) in
-            logStack (range:rest) 4
+         ([V "Exp", T Dot, T Dot, V "Term"], E r _:_:_:E l lo:rest) -> 
+            let range = E (Range l r lo) in
+            logStack (range lo:rest) 4
          -- for-loops
-         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Exp", T LeftArrow], _:E body:_:E iter:_:Pt(_, Str ident, _):_:rest) -> 
-            let floop = Ps (ForLoop ident iter body) in
+         ([T For, T Ident, T In, V "Exp", T RightArrow, V "Exp", T LeftArrow], _:E body _:_:E iter _:_:Pt StreamToken {content = Str ident, loc= l}:_:rest) -> 
+            let floop = Ps (ForLoop ident iter body l) in
             logStack (floop:rest) 7
          -- if-then-else statement
 
-         ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el : _ : E thn : _ : E condition : _ : rest) -> 
-            let funcall = Ps (IfThenElse condition thn el) in
+         ([T If, V "Exp", T Then, V "Exp", T Else, V "Exp"], E el _ : _ : E thn _ : _ : E condition _ : Pt i : rest) -> 
+            let funcall = Ps (IfThenElse condition thn el $ loc i) in
             logStack (funcall:rest) 6
          -- fun call with no args
-         ([V "Exp", T LeftParen, T RightParen], _: _ : E exp : rest) -> 
-            let funcall = E (FunCall exp []) in
-            logStack (funcall:rest) 3
-         ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg : _ : E exp : rest) -> 
-            let funcall = E (FunCall exp [arg]) in
-            logStack (funcall:rest) 4
-         ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:FunArgs args : _ : E exp : rest) -> 
-            let funcall = E (FunCall exp args) in
-            logStack (funcall:rest) 4
-         ([V "Exp", T Comma, V "Fparams"], E l:_:E e:rest) -> 
+         ([V "Exp", T LeftParen, T RightParen], _: _ : E exp l : rest) -> 
+            let funcall = E (FunCall exp [] l) in
+            logStack (funcall l:rest) 3
+         ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:E arg _ : _ : E exp l : rest) -> 
+            let funcall = E (FunCall exp [arg] l) in
+            logStack (funcall l:rest) 4
+         ([V "Exp", T LeftParen, V "Fparams", T RightParen], _:FunArgs args : _ : E exp l : rest) -> 
+            let funcall = E (FunCall exp args l) in
+            logStack (funcall l:rest) 4
+         ([V "Exp", T Comma, V "Fparams"], E l _:_:E e _:rest) -> 
             let args = FunArgs [e, l] in
             logStack (args:rest) 3
-         ([V "Exp", T Comma, V "Fparams"], FunArgs lits:_:E e:rest) -> 
+         ([V "Exp", T Comma, V "Fparams"], FunArgs lits:_:E e _:rest) -> 
             let args = FunArgs $ e:lits in
             logStack (args:rest) 3
          ([V "Types", T RightArrow, T Ident], stack) ->  
@@ -530,10 +532,10 @@ ruleFuncs input stack =
             let (pms, rest) = types stack in 
             logStack (pms:rest) 5
 -- for not params and only a return type
-         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:E e: _: Pt(_, Str name, _):rest) -> 
+         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:E e _: _: Pt StreamToken {content = Str name}:rest) -> 
             logStack (Pa [Function {funName = name, params = [], body = scope, returnType = show e}]:rest) 4
 -- for multiple params
-         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:FunParams fps: _: Pt(_, Str name, _):rest) -> 
+         ([T Ident, T Colon, V "ReturnTypes", V "Scope"] ,Ps scope:FunParams fps: _: Pt StreamToken {content = Str name}:rest) -> 
             let (ret, pms) = case reverse fps of 
                     ((_,rt): ps) -> (rt, ps)
                     [] -> ("Thunk", [])
@@ -544,20 +546,19 @@ ruleFuncs input stack =
             logStack (Pa (ast ++ f):rest) 2
          ([V "Ast"] ,Pa a:_) ->  
             logStack [Pa a] 1
-         ([T Let, T Ident, T Equal, V "Exp", T In] ,_:E e:_:Pt(_, Str str, loc):_:rest) ->  
-            logStack (Ps (LetIn str e):rest)  5
-         ([T LeftParen, V "Exp", T RightParen] ,_:(E e):_:rest) ->  
-            logStack (E e:rest)  3
-         ([V "Term"] ,(E term):rest) ->  
-            logStack (E term:rest) 1
-         ([V "Exp", V "Op", V "Term"] ,(E rhs):(O o):(E lhs):rest) ->  
-            logStack (E BinOp {lhs=lhs, op=o, rhs=rhs}:rest) 3 
-         ([V "Exp"] ,E e:rest ) -> 
-            logStack (E e:rest) 1 
+         ([T Let, T Ident, T Equal, V "Exp", T In] ,_:E e _:_:Pt StreamToken {content = Str str, loc = l}:_:rest) ->  
+            logStack (Ps (LetIn str e l):rest)  5
+         ([T LeftParen, V "Exp", T RightParen] ,_:(E e l):_:rest) ->  
+            logStack (E e l:rest)  3
+         ([V "Term"] ,(E term l):rest) ->  
+            logStack (E term l:rest) 1
+         ([V "Exp", V "Op", V "Term"] ,(E rhs _):(O o):(E lhs l):rest) ->  
+            logStack (E (BinOp lhs o rhs l) l:rest) 3 
+         ([V "Exp"] ,E e l:rest ) -> 
+            logStack (E e l:rest) 1 
          ([V "Function"] ,Pa a:rest) ->  
             logStack (Pa a:rest) 1
-         ([T Ident, T Colon, V "Types", V "Scope"] ,Ps scope:FunParams fps :_: Pt st:rest) ->  -- Function declarations
-            let  (_, Str fname, loc) = st in
+         ([T Ident, T Colon, V "Types", V "Scope"] ,Ps scope:FunParams fps :_: Pt StreamToken{content = Str fname}:rest) ->  -- Function declarations
             logStack (Pa [Function {funName = fname, params = fps, body = scope}]:rest) 4
          ([V "Scope", V "Stm"] ,Ps e:Ps (Scope a):rest) ->  
             logStack (Ps (Scope (a ++ [e])):rest) 2
@@ -573,8 +574,8 @@ ruleFuncs input stack =
             logStack (O Ast.Plus:rest) 1
          ([T Lexer.Star] ,Pt _:rest) ->   
             logStack (O Ast.Mult:rest) 1
-         ([T Lexer.Return, V "Exp"] ,(E e):(Pt r):rest) ->  
-            logStack (Ps (Ast.Return e):rest) 2
+         ([T Lexer.Return, V "Exp"] ,(E e l):(Pt _):rest) ->  
+            logStack (Ps (Ast.Return e l):rest) 2
          ([T Lexer.Minus] ,Pt _:rest) ->   
             logStack (O Ast.Minus:rest) 1
          ([T Lexer.Lt] ,Pt _:rest) ->   
@@ -587,16 +588,10 @@ ruleFuncs input stack =
             logStack (O Ast.Gte:rest) 1
          ([T Lexer.Gte] ,Pt _:rest) ->   
             logStack (O Ast.Eq:rest) 1
-         ([T Lexer.Ident] ,Pt ide:rest) ->  
-            case ide of 
-                (_, Str str, lco) -> 
-                    logStack (E IExp {ident=str}:rest) 1
-                _ -> error $ "wrong content of token"
-         ([T Lexer.Literal] ,Pt ide:rest) ->  
-            case ide of 
-                    (_, I i, loc) -> 
-                        logStack (E LitExp {lit= LI i}:rest) 1
-                    _ -> error "wrong content of token"
+         ([T Lexer.Ident] ,Pt StreamToken{content = Str str, loc=l}:rest) ->  
+                    logStack (E (IExp str l) l:rest) 1
+         ([T Lexer.Literal] ,Pt StreamToken{content = I i, loc=l}:rest) ->  
+                        logStack (E (LitExp  (LI i) l) l:rest) 1
          (r, ps) ->  throw $ MissingRule $ "Undefined parse error\nrule: " ++ show r ++ "\non stack: " ++ show ps
 
 -------------------- Generating Grammar --------------------

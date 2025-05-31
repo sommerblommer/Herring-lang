@@ -1,4 +1,4 @@
-module Lexer (lexicalAnalysis, Token(..), StreamToken, Content(..)) where
+module Lexer (lexicalAnalysis, Token(..), StreamToken(..), Content(..)) where
 
 import Control.Monad.State
 
@@ -42,7 +42,8 @@ data Content = Str String | I Int | Nop
 
 type Location = (Int, Int)
 
-type StreamToken = (Token, Content, Location)
+data StreamToken = StreamToken { token :: Token, content :: Content, loc :: Location}
+    deriving (Show)
 
 
 
@@ -63,10 +64,10 @@ lexicalAnalysis =  helper (1,1) where
 
 
 simpleToken :: Token -> StreamToken 
-simpleToken t = (t, Nop, (1,1))
+simpleToken t = StreamToken {token = t,content = Nop, loc = (1,1)}
 
 updateLoc :: Location -> StreamToken -> StreamToken 
-updateLoc loc (a, b, _) = (a, b, loc) 
+updateLoc l st = st {loc = l}
 
 step ::State (Int, Location) () 
 step = do
@@ -123,32 +124,36 @@ findToken c xs
     | otherwise = checkIdentForReserved <$> findIdent "" c xs
 
 identToLit :: StreamToken -> StreamToken 
-identToLit (Ident, Str s, loc) = (Literal, I $ read s, loc)
+identToLit (StreamToken {token = Ident, content = Str s, loc=l}) = StreamToken {token = Literal, content = I $ read s, loc =  l}
 identToLit a = a 
 
 checkIdentForReserved :: StreamToken -> StreamToken 
-checkIdentForReserved (Ident, Str "->",     _) = simpleToken RightArrow
-checkIdentForReserved (Ident, Str "<-",     _) = simpleToken LeftArrow
-checkIdentForReserved (Ident, Str ">=",     _) = simpleToken Gte
-checkIdentForReserved (Ident, Str "<=",     _) = simpleToken Lte
-checkIdentForReserved (Ident, Str "<",      _) = simpleToken Lt
-checkIdentForReserved (Ident, Str ">",      _) = simpleToken Gt
-checkIdentForReserved (Ident, Str "-",      _) = simpleToken Minus
-checkIdentForReserved (Ident, Str "let",    _) = simpleToken Let
-checkIdentForReserved (Ident, Str "in",     _) = simpleToken In
-checkIdentForReserved (Ident, Str "var",    _) = simpleToken Var
-checkIdentForReserved (Ident, Str "return", _) = simpleToken Return
-checkIdentForReserved (Ident, Str "if",     _) = simpleToken If
-checkIdentForReserved (Ident, Str "then",   _) = simpleToken Then
-checkIdentForReserved (Ident, Str "else",   _) = simpleToken Else
-checkIdentForReserved (Ident, Str "for",    _) = simpleToken For
-checkIdentForReserved a = a
+checkIdentForReserved st 
+    | token st /= Ident = st 
+    | otherwise         = case content st of 
+                          Str "->"     ->    simpleToken RightArrow
+                          Str "<-"     ->    simpleToken LeftArrow
+                          Str ">="     ->    simpleToken Gte
+                          Str "<="     ->    simpleToken Lte
+                          Str "<"      ->    simpleToken Lt
+                          Str ">"      ->    simpleToken Gt
+                          Str "-"      ->    simpleToken Minus
+                          Str "let"    ->    simpleToken Let
+                          Str "in"     ->    simpleToken In
+                          Str "var"    ->    simpleToken Var
+                          Str "return" ->    simpleToken Return
+                          Str "if"     ->    simpleToken If
+                          Str "then"   ->    simpleToken Then
+                          Str "else"   ->    simpleToken Else
+                          Str "for"    ->    simpleToken For
+                          _            ->    st
+
 
 findIdent :: String -> Char -> String -> State (Int, Location) StreamToken 
-findIdent acc c [] = step >> return (Ident, Str $ reverse (c:acc), (0,0))
-findIdent acc ' ' _ = step >> return (Ident,  Str $ reverse acc, (0,0))
+findIdent acc c [] = step >> return StreamToken {token = Ident, content = Str $ reverse (c:acc), loc = (0,0)}
+findIdent acc ' ' _ = step >> return StreamToken {token = Ident, content = Str $ reverse acc, loc = (0,0)}
 findIdent acc c (x:xs) 
-    | x `elem` singleCharTokens = step >> return (Ident, Str $ reverse (c:acc), (0,0))
+    | x `elem` singleCharTokens = step >> return StreamToken {token = Ident, content = Str $ reverse (c:acc), loc =(0,0)}
     | otherwise = step >> findIdent (c:acc) x xs
 
 

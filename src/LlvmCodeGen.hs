@@ -3,6 +3,7 @@ import TypedAst
 import Lib (llvmStdLib)
 import Exceptions 
 import Control.Exception (throw)
+import Control.Monad (void)
 
 
 data LLtyp = I8 
@@ -107,6 +108,12 @@ instance Show Cfg where
 startBlock :: String -> BuildLet Operand 
 startBlock str = BuildLet (\(cfg, env) -> (cfg {currentBlock = str}, env, Nop))
 
+startBlock_ :: String -> BuildLet () 
+startBlock_ = void . startBlock
+
+endBlock_ :: BuildLet () 
+endBlock_ = void endBlock
+ 
 endBlock :: BuildLet Operand 
 endBlock = 
     BuildLet (\(cfg, env) -> 
@@ -166,14 +173,14 @@ instance Functor BuildLet where
 
 instance Applicative BuildLet where 
     pure a = BuildLet (\(cfg, env) -> (cfg, env, a))
-    BuildLet a <*> BuildLet b =
-        let f a3 =
-                let (c, e, ab) = a a3 in 
+    BuildLet f <*> BuildLet b =
+        let func a3 =
+                let (c, e, ab) = f a3 in 
                 let (d, g, h) = b (c, e) in 
                 (d, g, ab h)
         in
 
-        BuildLet f
+        BuildLet func
 
 
 instance Monad BuildLet where 
@@ -192,6 +199,7 @@ freshVar :: String -> BuildLet String
 freshVar ident = do 
     i <- getFresh 
     return $ ident ++ show i
+    
 
 addInstruction :: Maybe String -> Instruction -> BuildLet Operand 
 addInstruction (Just str) alloc@(Allocate _) = do
@@ -271,7 +279,7 @@ codegenExpr (BinOp l op r typ) = do
         isCmp Gt = True
         isCmp Eq = True
         isCmp _ = False
-    lop <- codegenExpr l
+    lop <- codegenExpr l 
     rop <- codegenExpr r 
 
     if isCmp op
@@ -371,16 +379,16 @@ codegenStm (IfThenElse cond thn els) = do
     env <- getEnv -- save inital env for scoping 
     cndop <- codegenExpr cond 
     _ <- addInstruction Nothing $ Cbr cndop thenLabel elseLabel 
-    _ <- endBlock 
-    _ <- startBlock thenLabel
+    endBlock_ 
+    startBlock_ thenLabel
     _ <- codegenExpr thn 
     _ <- addInstruction Nothing $ Br endLabel 
-    _ <- endBlock 
-    _ <- startBlock elseLabel
-    _ <- overWriteEnv env
+    endBlock_ 
+    startBlock_ elseLabel
+    overWriteEnv env
     _ <- codegenExpr els 
     _ <- addInstruction Nothing $ Br endLabel 
-    _ <- endBlock 
+    endBlock_ 
     startBlock endLabel
 
 codegenStm (ForLoop var iter body typ) = do 
@@ -403,14 +411,14 @@ codegenStm (ForLoop var iter body typ) = do
                     _ <- addInstruction Nothing $ Cbr cmp bodyLabel endLabel 
                     helper alloca
                 _ -> error "Should not be possible"
-    _ <- endBlock 
-    _ <- startBlock bodyLabel 
+    endBlock_ 
+    startBlock_ bodyLabel 
     _ <- codegenExpr body 
     l <- addInstruction (Just "load") $ Load I32 iterVar
     add <- addInstruction (Just "plusOne") $ LLBinOp Add I32 l (Lit 1)
     _ <- addInstruction Nothing $ Store I32 add iterVar
     _ <- addInstruction Nothing $ Br condLabel 
-    _ <- endBlock 
+    endBlock_ 
     startBlock endLabel
 
 storeArgs :: [(String, Typ)] -> BuildLet Operand 
@@ -433,7 +441,7 @@ codegenFunc fun =
     let args = map (\(name, typ) -> (name, tpConvert typ)) $ params fun in
     let typs = map (\(_, typ) -> tpConvert typ) $ params fun in
     let BuildLet a = do 
-            _ <- startBlock "" 
+            startBlock_ "" 
             _ <- storeArgs $ params fun 
             _ <- codegenStm $ body fun
             endBlock 
