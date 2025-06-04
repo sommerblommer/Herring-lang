@@ -410,10 +410,6 @@ lastParse :: ParseStack -> Ast
 lastParse [Pa a] = a 
 lastParse e = error $ "Parser did not output a tree\n" ++ show e
 
-data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr Location | Pa Ast | Fun Function | TDecl TypeDecl | FunParams [(String, String)] | FunArgs [Expr]
-    deriving (Show)
-type ParseStack = [ParseItem]
-
 
 logStack :: ParseStack -> Int -> Writer [String] (ParseStack, Int)
 logStack ps i = writer ((ps, i), [show ps ++ ", toPop: " ++ show i])
@@ -439,13 +435,30 @@ types ps =
 
         _ -> throw $ TypeNotParsed $ show ps
 
+data ParseItem = Pt StreamToken | Ps Stm | O Op | E Expr Location | Pa Ast | Fun Function | TDecl TypeDecl | FunParams [(String, String)] | FunArgs [Expr] | AssignmentList [(String, Expr)]
+    deriving (Show)
+type ParseStack = [ParseItem]
+
 ruleFuncs :: Rule -> ParseStack -> Writer [String] (ParseStack, Int)
 ruleFuncs input stack = 
     case (input, stack) of
+         -- Record Lookup 
+         ([V "Exp", T Dot, V "Term"], E e l :_:E t _:rest) -> 
+            logStack (E (RecordLookup e t l) l :rest) 3
+
+         -- Record literal 
+         ([T Ident, T LeftBracket, V "AssignList", T RightBreacket], Pt StreamToken {content = Str i, loc = l}:_:AssignmentList assignments:_:rest) ->
+            let rLit = RecordLit i assignments l in   
+            logStack (E rLit l:rest) 4
+
+         ([T Ident, T Equal, V "Exp", T Comma, V "AssignmentList"], AssignmentList l:_:E e _:_:Pt StreamToken {content = Str field}:rest) -> 
+            let al = AssignmentList $ (field, e):l
+            in logStack (al:rest) 5
+            
+         ([T Ident, T Equal, V "Exp"], E e l :_:Pt StreamToken {content = Str field}:rest) -> 
+            logStack (AssignmentList [(field,e)]:rest) 3
 
          -- TopLevel: 
-    
-        
          ([V "Function"], f:rest) -> 
             logStack (f:rest) 1
          ([V "TypeDecl"], t:rest) -> 

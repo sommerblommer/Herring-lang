@@ -37,6 +37,13 @@ Exp => Exp . . Term
 Exp => ( Scope )
 Exp => [ ArrLit ]
 Exp => Exp [ Exp ]
+Exp => ident { AssignList }
+Exp => Exp . Term
+
+
+AssignList => ident = Exp , AssignList 
+AssignList => ident = Exp
+
 
 Fparams => Exp , Fparams 
 Fparams => Exp

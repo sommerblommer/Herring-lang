@@ -71,13 +71,9 @@ updateLoc :: Location -> StreamToken -> StreamToken
 updateLoc l st = st {loc = l}
 
 step ::State (Int, Location) () 
-step = do
-    (len, (cols, loc)) <- get
-    put (len + 1, (cols + 1, loc))
+step = modify (\(len, (cols, loc)) -> (len + 1, (cols +1, loc)))
 newLine :: State (Int, Location) () 
-newLine = do 
-    (len, (_, lns)) <- get
-    put (len + 1, (1, lns + 1))
+newLine = modify (\(len, (_, lns)) -> (len + 1, (1, lns + 1))) 
 end :: State (Int, Location) () 
 end = put (1000, (0, 0))
 

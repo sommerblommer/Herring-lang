@@ -2,7 +2,7 @@
 module Exceptions where 
 import Control.Exception (Exception (toException), SomeException)
 
-
+type Loc = (Int, Int)
 
 data ParseException = forall e . Exception e => ParseException e 
 instance Show ParseException where
@@ -28,11 +28,19 @@ instance Exception BackendException
 backEndExcetionToException :: Exception e => e -> SomeException 
 backEndExcetionToException = toException . BackendException
 
-data TypeException = MissingVar String | TypeE String | FunCallException String
+data TypeException = 
+    MissingVar String 
+    | TypeE String String Loc  
+    | FunCallException String 
+    | NotAType String Loc 
+    | RecordFieldNameMistmatch String Loc 
+
 instance Show TypeException where 
     show (MissingVar s) = "TypeError: " ++ s
-    show (TypeE s) = "TypeError: " ++ s
+    show (TypeE t1 t2 loc) = "TypeError: type mismatch\nexpected: " ++ t1 ++ "\nactual: " ++ t2 ++ "\nlocation: " ++ show loc
     show (FunCallException s) = "TypeError: " ++ s
+    show (NotAType s loc) = "TypeError: " ++ s ++ " is not a type, " ++ show loc
+    show (RecordFieldNameMistmatch name loc) = "TypeError: mismatch of names in record literal: \nwrong field name: " ++ show name ++ "\nat: " ++ show loc  
 instance Exception TypeException
 
 data CodeGenException = MissingVarInEnv String | MalformedFunctionCall | TypeNotParsed String

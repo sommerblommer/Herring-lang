@@ -64,6 +64,8 @@ data Expr =
     | ArrLit [Expr] Typ
     | ArrLookUp Expr Expr Typ
     | Length Expr Typ
+    | RecordLit String [(String, Expr)]
+    | RecordLookup Expr Expr
 
 data Stm = 
     LetIn String Expr Typ

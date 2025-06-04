@@ -11,6 +11,8 @@ data Op = Plus | Minus | Mult | Div | Lt | Lte | Gt | Gte | Eq
 
 type Location = (Int, Int)
 
+type Assignment = (String, Expr)
+
 data Expr = 
     LitExp Lit Location
     | IExp String Location
@@ -20,9 +22,11 @@ data Expr =
     | Closure Stm  Location
     | ArrLit [Expr] Location
     | ArrLookUp Expr Expr Location
+    | RecordLit String [Assignment] Location
+    | RecordLookup Expr Expr Location
 
 data Stm = 
-    LetIn String Expr  Location
+    LetIn String Expr Location
     | VarInst String Expr Location
     | ForLoop String Expr Expr Location -- for $string in $iter $body
     | Return Expr Location

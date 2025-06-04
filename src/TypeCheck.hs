@@ -31,7 +31,7 @@ astOpToTASTOp Ast.Eq = TAST.Eq
 
 data Env = Env {vars :: DM.Map String Typ, functions :: [TAST.Function], types :: [TAST.TypeDecl]}
 emptEnv :: Env 
-emptEnv = Env {vars = DM.empty, functions = []}
+emptEnv = Env {vars = DM.empty, functions = [], types = []}
 
 insertIntoEnv :: String -> Typ -> Env -> Env 
 insertIntoEnv s t e = e {vars = DM.insert s t $ vars e}
@@ -49,7 +49,7 @@ lookupFunc env iden =
 getTypeOfExpr :: Env -> TAST.Expr -> Typ 
 getTypeOfExpr env (Ident var _) = case vars env DM.!? var  of 
     Just t -> t 
-    Nothing -> throw $ TypeE $ show var ++ " is not instantiated"
+    Nothing -> throw $ MissingVar $ show var ++ " is not instantiated"
 getTypeOfExpr _ Literal {tLit=l} = case l of 
     (TLI _) -> IntType 
     (TLB _) -> BoolType
@@ -60,6 +60,15 @@ getTypeOfExpr _ (TAST.Range  _ _) = IntType
 getTypeOfExpr _ (TAST.ArrLookUp _ _ t) = t
 getTypeOfExpr _ (TAST.Length _ t) = t
 getTypeOfExpr _ (TAST.ArrLit _ t) = t
+
+locOfExpr :: Ast.Expr -> Location
+locOfExpr (Ast.BinOp _ _ _ l) = l
+locOfExpr (Ast.FunCall _ _ l) = l
+locOfExpr (Ast.Closure  _ l) = l
+locOfExpr (Ast.Range  _ _ l) = l 
+locOfExpr (Ast.ArrLookUp _ _ l) = l 
+locOfExpr (Ast.ArrLit _ l) = l 
+locOfExpr _ = error "nnnnnooooooo"
 
 typeCheckExpr :: Env -> Ast.Expr -> (TAST.Expr, TAST.Typ)
 typeCheckExpr _ (LitExp (LI i) _) = (TAST.Literal {tLit = TLI i}, IntType)
@@ -106,15 +115,34 @@ typeCheckExpr env (Ast.ArrLit lits loc) =
     in let fall = all (\t -> t == head typs) typs
     in if fall 
         then (TAST.ArrLit texps (Pointer $ head typs), Pointer $ head typs)
-        else throw $ TypeE $ "types in array literal are not the same at: " ++ show loc
+        else throw $ MissingVar $ "types in array literal are not the same at: " ++ show loc
 
 typeCheckExpr env (Ast.ArrLookUp arr lup loc) = 
     let foo (Pointer t) = t 
-        foo _ = throw $ TypeE $ "lookup at: " ++ show loc ++ " is not at pointer"
+        foo _ = throw $ MissingVar $ "lookup at: " ++ show loc ++ " is not at pointer"
     in
     let tlup = assertType env lup IntType 
-    in let (lexpr, lt) = typeCheckExpr env arr 
+        (lexpr, lt) = typeCheckExpr env arr 
     in (TAST.ArrLookUp lexpr tlup (foo lt), foo lt)
+
+typeCheckExpr env (Ast.RecordLit typeName assignments loc) =  
+    let lup (t:ts) = if TAST.tname t == typeName then t else lup ts  
+        lup []     = throw $ NotAType typeName loc
+    in
+    let typeDecl = lup $ types env 
+        fields = map (\((aname, aexpr), (fname, ftype)) -> 
+                        let (taexpr, aft) = 
+                                let (texpr, ft) =  typeCheckExpr env aexpr
+                                in if (ft == ftype) 
+                                    then (texpr, ft)
+                                    else throw $ TypeE (show ft) (show ftype) loc  
+                        in if aname == fname
+                            then (aname, taexpr) 
+                            else throw $ RecordFieldNameMistmatch aname loc  
+                     ) $ zip assignments $ innerTs typeDecl
+    in
+
+    (TAST.RecordLit typeName fields, Record $ innerTs typeDecl)
 
 
 
@@ -125,15 +153,12 @@ assertType env expr (Pointer _) =
     let (texp, exptyp) = typeCheckExpr env expr in 
     case exptyp of 
         (Pointer _) -> texp 
-        _ -> throw $ TypeE "wrong type"
+        _ -> throw $ MissingVar "wrong type"
 assertType env expr typ = 
     let (texp, exptyp) = typeCheckExpr env expr in 
     if exptyp == typ 
         then texp 
-        else throw $ TypeE $ "wrong type\nExpected: " 
-                             ++ show typ 
-                             ++ "\nActual: " 
-                             ++ show exptyp
+        else throw $ TypeE (show typ) (show exptyp) (locOfExpr expr)
 
 
 
@@ -199,7 +224,7 @@ typeCheckParams xs = do x <- xs
                                         let cc = [(c, y) | y <- ys]
                                         (s, typ) <- typeCheckParams cc 
                                         return (s, Pointer typ)
-                                    e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
+                                    e -> throw $ MissingVar $ "Type: " ++ show e ++ " is not recognised in fh"
 
 functionHeaders :: Env -> Ast.Function -> Env 
 functionHeaders env func =  
@@ -213,7 +238,7 @@ functionHeaders env func =
         helper (_, "Bool") = BoolType 
         helper (_, x) = case splitStr ' ' x of
                             ("ptr":ys) ->  Pointer $  curry helper "" $ head ys 
-                            e -> throw $ TypeE $ "Type: " ++ show e ++ " is not recognised in fh"
+                            e -> throw $ MissingVar $ "Type: " ++ show e ++ " is not recognised in fh"
 
 typeDecls :: Env -> [Ast.TypeDecl] -> Env 
 typeDecls = foldr (\td acc -> 

@@ -142,7 +142,9 @@ instance Show FDecl where
 
 data Program = Program {lfdecls :: [FDecl], ltdecls :: [TDecl]}
 instance Show Program where 
-    show p = foldl (\acc a -> show a ++ acc) "" $ lfdecls p 
+    show p = 
+        foldl (\acc a -> show a ++ acc) "\n" (ltdecls p)
+        ++ foldl (\acc a -> show a ++ acc) "" (lfdecls p)
 
 idBuildlet :: BuildLet Operand 
 idBuildlet = return Nop
@@ -436,6 +438,9 @@ prependAllocs cfg =
     let res = b ++ allocas cfg  in
     cfg {blocks = init (blocks cfg) ++ [(name, res)]}
 
+codegenType :: TypeDecl -> TDecl 
+codegenType td = TD (tname td) . map (tpConvert . snd) $ innerTs td
+
 codegenFunc :: Function -> FDecl
 codegenFunc fun = 
     let args = map (\(name, typ) -> (name, tpConvert typ)) $ params fun in
@@ -450,6 +455,7 @@ codegenFunc fun =
 
 codegenAst :: TypedAst -> String  
 codegenAst tast = 
-    let fds = map codegenFunc $ fdecls tast in 
-    let prog = Program {lfdecls=fds, ltdecls = []} in 
+    let typs = map codegenType $ tdecls tast 
+        fds = map codegenFunc $ fdecls tast  
+        prog = Program {lfdecls=fds, ltdecls = typs} in 
     llvmStdLib ++ show prog
