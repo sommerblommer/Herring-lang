@@ -1,6 +1,7 @@
 module BuildLet where 
 import Lib (stdLib)
 import Data.List (findIndex)
+import Control.Monad.State 
 
 header :: String 
 header = ".global _start\n.align 4\n"
@@ -152,44 +153,53 @@ printCfg c =
         in
         a ++ stdLib ++ epilogue
 
-addLine :: CodeLine -> BuildLet Operand
-addLine  cl@(CL (BL _) []) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env,R 0) in 
-    BuildLet f
-addLine  cl@(CL _ (op:_)) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
-    BuildLet f
-addLine cl@(MopThenMove Ldr (op:_)) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
-    BuildLet f
-addLine cl@(MovePThenMop Ldr (op:_)) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
-    BuildLet f
-addLine cl@(MoffSet Ldr (op:_)) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, op) in 
-    BuildLet f
-addLine cl@(MopThenMove Str _ ) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, SP 0) in 
-    BuildLet f
-addLine cl@(MovePThenMop Str _ ) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, SP 0) in 
-    BuildLet f
-addLine cl@(MoffSet Str _ ) = 
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, SP 0) in 
-    BuildLet f
-addLine  cl =
-    let f (cfg, env) = (cfg {insns = cl : insns cfg}, env, Nop) in 
-    BuildLet f
+addLine :: CodeLine -> State (Cfg, Env) Operand
+addLine  cl@(CL (BL _) []) = do (cfg, env) <- get
+                                put (cfg {insns = cl : insns cfg}, env)  
+                                return $ R 0
+
+addLine  cl@(CL _ (op:_)) = get >>= \(cfg, env) ->
+                            put (cfg {insns = cl : insns cfg}, env) >>
+                            return op
+
+addLine cl@(MopThenMove Ldr (op:_)) = do 
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return op
+addLine cl@(MovePThenMop Ldr (op:_)) = do 
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return op
+addLine cl@(MoffSet Ldr (op:_)) = do
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return op
+addLine cl@(MopThenMove Str _ ) = do
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return $ SP 0
+addLine cl@(MovePThenMop Str _ ) = do
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return $ SP 0
+addLine cl@(MoffSet Str _ ) = do
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return $ SP 0
+addLine  cl = do 
+    (cfg, env) <- get 
+    put (cfg {insns = cl : insns cfg}, env)  
+    return Nop
 
 fixStores :: Env -> Block -> Block 
 fixStores env = 
     foldr (\cl acc -> 
         case cl of 
             (MoffSet mop [a, b, Defer s]) ->  
-                let index = findIndex (\(var, _) -> var == s) $ deferedStores env in
+                let index = findIndex (\(var, _) -> var == s) $ deferedStores env ++ vars env in
                 case index of 
                     Just i -> MoffSet mop [a, b, Lit (i * 16)] : acc
-                    _ -> error "variable not found"
+                    _ -> error $ "variable not found: " ++ s ++ "\nenv: " ++ show env
             _ -> cl : acc
     ) []
 
@@ -202,27 +212,21 @@ fixCfg env cfg =
 getEnv :: BuildLet Operand -> BuildLet Env 
 getEnv (BuildLet o) = BuildLet (\bl -> let (cfg, env, _) = o bl in (cfg, env, env))
 
-startBlock :: String -> BuildLet Operand
-startBlock s =
-    BuildLet (
-        \(cfg, env) ->
-            if currentBlock cfg /= "" then error "end current block before starting a new one" 
-            else
-            (cfg {currentBlock = s}, env, Nop)
-    )
+startBlock :: String -> State (Cfg, Env) ()
+startBlock s  =
+    get >>= \(cfg, env) ->
+    if currentBlock cfg /= "" then error "end current block before starting a new one" 
+    else put (cfg {currentBlock = s}, env)  
 
-endBlock :: BuildLet Operand 
+endBlock :: State (Cfg, Env) ()
 endBlock = 
-    BuildLet (
-        \(cfg, env) ->
-        (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [],  currentBlock = ""}, env, Nop)
-    )
-endFunction :: BuildLet Operand 
+        get >>= \(cfg, env) ->
+        put (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [],  currentBlock = ""}, env)  
+
+endFunction :: State (Cfg, Env) () 
 endFunction =
-    BuildLet (
-        \(cfg, _) ->
-        (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [],  currentBlock = ""}, emptyEnv, Nop)
-    )
+        get >>= \(cfg, _) ->
+        put (Cfg {blocks = (currentBlock cfg, insns cfg): blocks cfg, insns = [],  currentBlock = ""}, emptyEnv)
 
 emptyCfg :: Cfg
 emptyCfg = Cfg {blocks=[], insns = [],  currentBlock = ""}
@@ -234,11 +238,5 @@ emptyEnv :: Env
 emptyEnv = Env {stack=0, regs= [1,2,3,4,5,6,7,8,9,10,11, 0], vars = [], deferedStores = [], poppedFromStack = [], uid = 0}
 
 
-overWriteEnv :: Env -> BuildLet Operand 
-overWriteEnv newEnv = 
-    BuildLet (\(cfg, oldEnv) ->
-        let newEnv' = newEnv {uid = uid oldEnv + uid newEnv, deferedStores = deferedStores newEnv ++ deferedStores oldEnv} in
-        (cfg, newEnv', Nop)
-    )
 
 

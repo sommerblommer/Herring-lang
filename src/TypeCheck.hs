@@ -144,7 +144,12 @@ typeCheckExpr env (Ast.RecordLit typeName assignments loc) =
 
     (TAST.RecordLit typeName fields, Record $ innerTs typeDecl)
 
-
+-- TODO, not actually typechecking the specific variable
+typeCheckExpr env (Ast.RecordLookup lhs rhs loc) = 
+    let (trhs, rhstyp) = typeCheckExpr env rhs    
+        (tlhs, ltyp)   = typeCheckExpr env rhs    
+    in (TAST.RecordLookup tlhs trhs, rhstyp)
+    
 
 
 

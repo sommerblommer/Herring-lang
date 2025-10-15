@@ -35,6 +35,7 @@ library
       Parser
       TypeCheck
       TypedAst
+      X86CodeGen
   other-modules:
       Paths_herring
   autogen-modules:

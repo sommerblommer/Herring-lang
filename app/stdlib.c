@@ -12,3 +12,7 @@ int32_t read_integer() {
     scanf("%d", &i); 
     return i;
 }
+
+void *allocate_record(int32_t size) {
+    return malloc(size)
+}

@@ -4,7 +4,9 @@ import Lexer (lexicalAnalysis)
 import Parser (parse)
 import Ast (Ast, prettyPrintAst)
 import TypeCheck (typeCheckAst)
-import LlvmCodeGen (codegenAst)
+import LlvmCodeGen as  LLVM
+import X86CodeGen as X86
+import CodeGen as ARM
 import System.Environment (getArgs)
 import System.Process
 import GHC.IO.Exception (ExitCode(ExitFailure))
@@ -17,13 +19,13 @@ main = do
     (file, verb) <- handleArgs args
     parsed <- parse verb =<< lexicalAnalysis file
     let typedAst = typeCheckAst parsed 
-    let compiled = codegenAst  typedAst
+    let compiled = ARM.codegenAst  typedAst
     _ <- if verb then do
             putStrLn $ prettyPrintAst parsed 
             putStrLn $ replicate 40 '*'
             putStrLn compiled 
             else return ()
-    writeFile "output.ll" compiled
+    writeFile "output.s" compiled
     (ec, so, se) <- readProcessWithExitCode "clang" ["-O0", "app/stdlib.c", "output.ll"] ""
     case ec of 
         ExitFailure _ -> throw $ LLVME se 
@@ -37,6 +39,8 @@ handleArgs :: [String] -> IO (String, Bool)
 handleArgs (filePath:"verbose":_) = do 
     f <- readFile filePath
     return (f, True)
+handleArgs (filePath:"arm":_) = do 
+    error "TODO!"
 handleArgs (filePath:_) = do
     f <- readFile filePath
     return (f, False)

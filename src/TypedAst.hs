@@ -8,6 +8,7 @@ predefinedFunctions =
         Function {funName ="print", params=[("x", IntType)], body = Scope [], returnType = IntType}
     ,   Function {funName ="read", params=[], body = Scope [], returnType = IntType}
     ,   Function {funName ="length", params=[("x", IntType)], body = Scope [], returnType = IntType}
+    ,   Function {funName ="allocate_record", params=[("size", IntType)], body = Scope [], returnType = Pointer Void}
     ]
 predefinedFunctions2 :: [Typ] 
 predefinedFunctions2 = 
@@ -15,6 +16,7 @@ predefinedFunctions2 =
         FunType ("print", [IntType, Void])
     ,   FunType ("read", [Void, IntType])
     ,   FunType ("length", [Pointer IntType, IntType])
+    ,   FunType ("allocate_record", [IntType, Pointer Void])
     ]
 
 data Typ = 

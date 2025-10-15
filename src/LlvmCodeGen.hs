@@ -50,12 +50,13 @@ instance Show Bop where
     show Ltell = "sle" 
     show Gtell = "sge" 
     show Gtll = "sgt" 
-data Operand = Var String | Lit Int | BLit Bool | Nop
+data Operand = Var String | Lit Int | BLit Bool | Nop | Null
 instance Show Operand where 
     show (Var s) = "%" ++ s 
     show (Lit i) = show i 
     show (BLit b) = show b 
     show Nop = ""
+    show Null = "null"
 data Instruction = 
     LLBinOp Bop LLtyp Operand Operand 
     | Icmp Bop LLtyp Operand Operand 
@@ -67,6 +68,7 @@ data Instruction =
     | Br String 
     | Cbr Operand String String 
     | Gep LLtyp [(LLtyp, Operand)]
+    | PtrToInt (LLtyp, Operand) LLtyp -- (from type, variable) target type
 instance Show Instruction where 
     show (LlvmCodeGen.Return typ mop) = 
         let expstr = maybe "" show mop
@@ -122,6 +124,7 @@ endBlock =
     )
 
 data TDecl = TD String [LLtyp]
+
 instance Show TDecl where 
     show  (TD name typs) = "%struct." ++ name ++ " = type { " ++ helper typs ++ " }" 
         where 
@@ -152,7 +155,7 @@ idBuildlet = return Nop
 emptyCfg :: Cfg 
 emptyCfg = Cfg {blocks = [], insns = [], allocas = [], currentBlock = ""}
 
-data Env = Env {vars :: [(String, Operand)], uid :: Int}
+data Env = Env {vars :: [(String, Operand)], uid :: Int, structs :: TDecl}
 
 emptyEnv :: Env 
 emptyEnv = Env {vars = [], uid = 0}
@@ -347,6 +350,18 @@ codegenExpr (Length arg typ) = do
     a <- codegenExpr arg
     gep <- addInstruction (Just "lengthGep") $ Gep (Struct "list") [(t, a), (I32, Lit 0), (I32, Lit 0)]
     addInstruction (Just "length") $ Load I32 gep
+codegenExpr (RecordLit name fieldList) = do
+    
+    gep <- addInstruction (Just "size_ptr") $ Gep (Star (Struct name)) [(Struct name, Null), (I32, Lit 1)]
+
+    intOfPtr <- addInstruction (Just "size") $ PtrToInt (Star (Struct name), gep) I32
+
+    alloc <- addInstruction (Just "alloc") $ Call (Star I8)  "allocate_record" [(I32, intOfPtr)]
+
+    args <- traverse (codegenExpr . snd) fieldList
+
+    error "kfdnaæl"
+    
 
 insertIntoEnv :: String -> Operand -> BuildLet Operand
 insertIntoEnv name op = 
