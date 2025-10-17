@@ -114,11 +114,12 @@ typeCheckExpr env (Ast.ArrLit lits loc) =
     let (texps, typs) = unzip $ Prelude.foldl (\acc lit -> typeCheckExpr env lit : acc) [] lits 
     in let fall = all (\t -> t == head typs) typs
     in if fall 
-        then (TAST.ArrLit texps (Pointer $ head typs), Pointer $ head typs)
+        then (TAST.ArrLit texps (ArrayType $ head typs), ArrayType $ head typs)
         else throw $ MissingVar $ "types in array literal are not the same at: " ++ show loc
 
 typeCheckExpr env (Ast.ArrLookUp arr lup loc) = 
     let foo (Pointer t) = t 
+        foo (ArrayType t) = t 
         foo _ = throw $ MissingVar $ "lookup at: " ++ show loc ++ " is not at pointer"
     in
     let tlup = assertType env lup IntType 

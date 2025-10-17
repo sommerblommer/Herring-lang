@@ -12,11 +12,6 @@ space :: String -> String -> String
 space a b = a ++ " " ++ b
 
 
-data Operand = CVar String | CLiteral CLit | Nop
-instance Show Operand where 
-    show (CVar s) = s 
-    show (CLiteral c) = show c 
-    show Nop = ""
 
 data CLit = I Int | B Bool
 instance Show CLit where 
@@ -36,20 +31,51 @@ instance Show Cfg where
 emptyCfg :: Cfg 
 emptyCfg = Cfg {funcs = [], fbuilder = []}
 
-data CType = CIntType | CBoolType | CVoid
+data CType = CIntType | CBoolType | CVoid | CStar CType | CSquare CType
+data BOp = CPlus | CMinus | CDiv | CMult | CLT | CLE | CGT | CGE | CEq | PlusEq
+concreteOp :: Op -> BOp 
+concreteOp Plus = CPlus 
+concreteOp Minus = CMinus 
+concreteOp Mult = CMult 
+concreteOp Div = CDiv 
+concreteOp Lt = CLT 
+concreteOp Lte = CLE 
+concreteOp Gt = CGT 
+concreteOp Gte = CGE 
+concreteOp Eq = CEq
+instance Show BOp where 
+    show CPlus = "+"
+    show CMinus = "-"
+    show CDiv = "/"
+    show CMult = "*"
+    show CLT = "<"
+    show CLE = "<="
+    show CGT = ">"
+    show CGE = ">="
+    show CEq = "=="
+    show PlusEq = "+="
 instance Show CType where 
     show CIntType = "int"
     show CBoolType = "bool"
     show CVoid = "void"
+    show (CStar t ) = show t ++ "*" 
+    show (CSquare t) = "[" ++ "]" 
 
 data CExpr = 
-      Op Operand -- op
-    | CPlus CExpr CExpr -- cexpr + cexpr
+      CVar String -- op
+    | CIntLit Int 
+    | CBoolLit Bool
     | FCall String [CExpr] -- string([cexpr])
     | PrintF [(CExpr, CType)]
+    | CBinOp CExpr BOp CExpr
+    | CArrLit [CExpr]
+    | CArrLookup CExpr CExpr
+    | Nop
 instance Show CExpr where 
-    show (Op o) = show o 
-    show (CPlus a b) = show a ++ " + " ++ show b
+    show Nop = ""
+    show (CVar o) = o 
+    show (CIntLit i) = show i
+    show (CBoolLit b) = show b
     show (FCall fn args) = fn ++ "(" ++ foldl (\acc s -> show s ++ ", " ++ acc) "" args ++ ")"
     show (PrintF args) = 
         let mt t = case t of 
@@ -58,18 +84,27 @@ instance Show CExpr where
                     _ -> error "malformed print"
             (exps, typs) = unzip args 
         in "printf( \"" ++ foldl (\acc a -> mt a ++ acc) "" typs ++ "\""++ foldr (\a acc -> acc ++ "," ++ show a) "" exps ++ ")"
+    show (CBinOp lhs op rhs) = show lhs `space` show op `space` show rhs
+    show (CArrLit ces) = "{" ++ foldl (\acc a -> show a ++ ", " ++ acc) "}" ces 
+    show (CArrLookup arr lup) = show arr ++ "[" ++ show lup ++ "]" 
     
 data CLine = 
       Decl CType String CExpr 
     | CReturn CExpr
     | ImPure CExpr
+    | LoopHead CType String CExpr CExpr CExpr 
+    | ScopeStart
+    | ScopeEnd
 
 instance Show CLine where 
-    show cl =  
-        let shelper (Decl ct s rhs) = show ct `space` s ++ " = " ++ show rhs 
-            shelper (CReturn ce) = "return " ++ show ce 
-            shelper (ImPure ce) = show ce
-        in shelper cl ++ ";"
+    show (Decl (CSquare t) s rhs) = show t `space` s ++ "[]" ++ " = " ++ show rhs ++ ";"
+    show (Decl ct s rhs) = show ct `space` s ++ " = " ++ show rhs ++ ";"
+    show (CReturn ce) = "return " ++ show ce ++ ";"
+    show (ImPure ce) = show ce ++ ";"
+    show (LoopHead vt vn ve cmp iter) = "for(" ++ show vt `space` vn ++ " = " ++ show ve ++ "; " ++ show cmp ++ "; " ++ show iter  ++ ")"
+    show ScopeStart = "{" 
+    show ScopeEnd = "}"
+
 
 data CFunc = CFunc {retType :: CType, cfname :: String, cparams :: [(String, CType)], cbody :: [CLine]}
 instance Show CFunc where 
@@ -77,7 +112,7 @@ instance Show CFunc where
         let h = show (retType cf) `space` cfname cf 
             pms = foldl (\acc (pname, ptyp) -> show ptyp `space` pname ++ ", " ++ acc) "" $ cparams cf           
             b = foldl (\acc cl -> show cl ++ "\n" ++ acc) "" $ cbody cf
-        in h ++ "(" ++ pms ++ ")" ++ "{\n" ++ b ++ "\n}"
+        in h ++ "(" ++ pms ++ ")" ++  b 
 
 
 createLine :: CLine -> RWS () [String] (Cfg, Env) ()
@@ -94,8 +129,8 @@ finalizeFunction rt name pms = do
     put (newCfg, env)
 
 
-lookUpVar :: String -> RWS () [String] (Cfg, Env) Operand 
-lookUpVar _ = return Nop
+lookUpVar :: String -> RWS () [String] (Cfg, Env) () 
+lookUpVar _ = return ()
 
 insertVar :: String -> RWS () [String] (Cfg, Env) () 
 insertVar v = get >>= \(cfg, env) -> put (cfg, env {vars = v : vars env}) 
@@ -104,6 +139,8 @@ concreteType :: Typ -> CType
 concreteType IntType = CIntType 
 concreteType BoolType = CBoolType 
 concreteType Void = CVoid
+concreteType (Pointer t) = CStar $ concreteType t
+concreteType (ArrayType t) = CSquare $ concreteType t
 concreteType a = error $ "type not implemented in c compiler: " ++ show a
 
 typeOfExpr :: Expr -> CType 
@@ -111,14 +148,17 @@ typeOfExpr (Literal {tLit=TLI _}) = CIntType
 typeOfExpr (Literal {tLit=TLB _}) = CBoolType 
 typeOfExpr (Ident _ t) = concreteType t
 typeOfExpr (FunCall _ _ t) = concreteType t
-typeOfExpr _ = error "aaaaa"
+typeOfExpr (BinOp _ _ _ t) = concreteType t
+typeOfExpr (ArrLit _ t) = concreteType t
+typeOfExpr (ArrLookUp _ _ t) = concreteType t
+typeOfExpr _ = error "in typeOfExpr"
 
 
 codeGenExpr :: Expr -> RWS () [String] (Cfg, Env) CExpr
 
-codeGenExpr  (Literal {tLit=TLI tl}) = return $ Op $ CLiteral $ I tl 
+codeGenExpr  (Literal {tLit=TLI tl}) = return $ CIntLit tl 
 
-codeGenExpr (Ident s _) = return $ Op $ CVar s
+codeGenExpr (Ident s _) = return $ CVar s
 
 codeGenExpr (FunCall f args _) = do
     let fn = case f of 
@@ -133,6 +173,17 @@ codeGenExpr (FunCall f args _) = do
             return . PrintF . zip a $ map typeOfExpr args
         else FCall fn <$> mapM codeGenExpr args
 
+codeGenExpr (Closure stm _) = tell ["in closure"] >> codeGenStm stm >> return Nop 
+
+codeGenExpr (BinOp l o r _) = do 
+    le <- codeGenExpr l 
+    re <- codeGenExpr r
+    let bop = concreteOp o
+    return $ CBinOp le bop re
+ 
+codeGenExpr (ArrLit args _) = CArrLit . reverse <$> traverse codeGenExpr args
+
+codeGenExpr (ArrLookUp arr lup _) = CArrLookup <$> codeGenExpr arr <*> codeGenExpr lup
 
 codeGenExpr _ = error "expression TODO"
 
@@ -150,7 +201,28 @@ codeGenStm (LetIn s expr typ) = do
         _ -> createLine $ Decl (concreteType typ) s cexpr
     
 
-codeGenStm (Scope stms) = mapM_ codeGenStm stms 
+codeGenStm (Scope stms) = do 
+    tell ["Scope start"] 
+    createLine ScopeStart
+    mapM_ codeGenStm stms 
+    createLine ScopeEnd
+    tell ["Scope end"] 
+
+codeGenStm (ForLoop varname iter loopBody _) = do 
+    tell ["In for loop"]
+    (s, e) <- case iter of 
+                (Range start end) -> do 
+                                     s <- codeGenExpr start
+                                     e <- codeGenExpr end 
+                                     return (s,e)
+                _ -> error "malformed forloop" 
+    let cmp = CBinOp (CVar varname) CLT e
+    let i = CBinOp (CVar varname) PlusEq (CIntLit 1)
+    cl <- createLine $ LoopHead CIntType varname s cmp i 
+    _ <- codeGenExpr loopBody 
+    return cl
+
+
 
 codeGenStm _ = error "Statement TODO"
 
@@ -159,7 +231,6 @@ codeGenFunc func = do
     tell ["in function: " ++ funName func]
     _ <- codeGenStm $ body func  
     finalizeFunction (concreteType (returnType func)) (funName func) $ map (second concreteType) $ params func 
-    return ()
 
 codeGenAst :: TypedAst -> IO String 
 codeGenAst tast = do

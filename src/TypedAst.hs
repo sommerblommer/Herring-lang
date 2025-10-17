@@ -26,6 +26,7 @@ data Typ =
     | Void 
     | FunType (String, [Typ]) -- Name of function and it's type
     | Pointer Typ
+    | ArrayType Typ
     | Record [(String, Typ)]
     deriving (Eq)
 
@@ -35,6 +36,7 @@ instance Show Typ where
     show StringType = "String"
     show Void = "Void"
     show (Pointer p) = "ptr " ++ show p
+    show (ArrayType p) = "Arr " ++ show p
     show (Record ts) =
         "{" ++ helper ts ++ "}"
         where helper [] = ""

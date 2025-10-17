@@ -27,6 +27,7 @@ library
   exposed-modules:
       Ast
       BuildLet
+      CCodeGen
       CodeGen
       Exceptions
       Lexer
