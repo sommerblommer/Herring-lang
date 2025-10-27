@@ -11,6 +11,9 @@ import Data.Bifunctor
 space :: String -> String -> String 
 space a b = a ++ " " ++ b
 
+parenthesis :: String -> String 
+parenthesis a = "(" ++ a ++ ")"
+
 
 
 data CLit = I Int | B Bool
@@ -23,15 +26,22 @@ emptyEnv :: Env
 emptyEnv = Env {vars = []}
 
 
-data Cfg = Cfg {funcs :: [CFunc], fbuilder :: [CLine]} 
+data Cfg = Cfg {funcs :: [CFunc], fbuilder :: [CLine], defered :: [CLine]} 
 
 instance Show Cfg where 
     show c = "#include <stdio.h>\n" ++ concatMap show (funcs c)
 
 emptyCfg :: Cfg 
-emptyCfg = Cfg {funcs = [], fbuilder = []}
+emptyCfg = Cfg {funcs = [], fbuilder = [], defered = []}
 
-data CType = CIntType | CBoolType | CVoid | CStar CType | CSquare CType
+data CType = 
+      CIntType 
+    | CBoolType 
+    | CVoid 
+    | CStar CType 
+    | CSquare CType
+    | CStruct String 
+
 data BOp = CPlus | CMinus | CDiv | CMult | CLT | CLE | CGT | CGE | CEq | PlusEq
 concreteOp :: Op -> BOp 
 concreteOp Plus = CPlus 
@@ -59,7 +69,8 @@ instance Show CType where
     show CBoolType = "bool"
     show CVoid = "void"
     show (CStar t ) = show t ++ "*" 
-    show (CSquare t) = "[" ++ "]" 
+    show (CSquare _) = "[" ++ "]" 
+    show (CStruct name) = "struct " ++ name
 
 data CExpr = 
       CVar String -- op
@@ -70,6 +81,7 @@ data CExpr =
     | CBinOp CExpr BOp CExpr
     | CArrLit [CExpr]
     | CArrLookup CExpr CExpr
+    | Malloc (Maybe CType) (Maybe Int) CType  
     | Nop
 instance Show CExpr where 
     show Nop = ""
@@ -87,12 +99,18 @@ instance Show CExpr where
     show (CBinOp lhs op rhs) = show lhs `space` show op `space` show rhs
     show (CArrLit ces) = "{" ++ foldl (\acc a -> show a ++ ", " ++ acc) "}" ces 
     show (CArrLookup arr lup) = show arr ++ "[" ++ show lup ++ "]" 
-    
+    show (Malloc mc mi ct) = 
+        let cast = maybe "" (parenthesis . show) mc 
+            i = maybe "" (\a -> show a ++ " * ") mi
+            typ = show ct
+        in cast ++ " malloc(" ++ i ++ typ ++ ")" 
 data CLine = 
       Decl CType String CExpr 
     | CReturn CExpr
     | ImPure CExpr
     | LoopHead CType String CExpr CExpr CExpr 
+    | StructAssignment CExpr CExpr
+    | StructDecl String [(CType, String)]
     | ScopeStart
     | ScopeEnd
 
@@ -102,6 +120,8 @@ instance Show CLine where
     show (CReturn ce) = "return " ++ show ce ++ ";"
     show (ImPure ce) = show ce ++ ";"
     show (LoopHead vt vn ve cmp iter) = "for(" ++ show vt `space` vn ++ " = " ++ show ve ++ "; " ++ show cmp ++ "; " ++ show iter  ++ ")"
+    show (StructAssignment lhs rhs) = show lhs ++ "->" ++ show rhs 
+    show (StructDecl name fields) = "struct " ++ name ++ "{" ++ foldl (\acc (t, fn) -> "\n" ++ show t `space` fn ++ ";" ) "}" fields
     show ScopeStart = "{" 
     show ScopeEnd = "}"
 
@@ -118,7 +138,15 @@ instance Show CFunc where
 createLine :: CLine -> RWS () [String] (Cfg, Env) ()
 createLine cl = do 
     (cfg, env) <- get 
-    let newCfg = cfg {fbuilder = cl : fbuilder cfg}
+    let defs = defered cfg
+    let newCfg = cfg {fbuilder = defs ++ [cl] ++ fbuilder cfg, defered = []}
+    put (newCfg, env)
+
+-- Defers the creation of a line in the CFG till the next createLine call
+deferLine :: CLine -> RWS () [String] (Cfg, Env) ()
+deferLine cl = do 
+    (cfg, env) <- get 
+    let newCfg = cfg {defered = cl : defered cfg}
     put (newCfg, env)
 
 finalizeFunction ::CType -> String -> [(String, CType)] ->  RWS () [String] (Cfg, Env) () 
@@ -184,6 +212,13 @@ codeGenExpr (BinOp l o r _) = do
 codeGenExpr (ArrLit args _) = CArrLit . reverse <$> traverse codeGenExpr args
 
 codeGenExpr (ArrLookUp arr lup _) = CArrLookup <$> codeGenExpr arr <*> codeGenExpr lup
+
+codeGenExpr (Length _ _) = error "rethinking length"
+
+codeGenExpr (RecordLit name args) = do 
+    tell ["RecordLit for " ++ name]
+    mapM_ (\(n, a) ->  deferLine . Decl (typeOfExpr a) n =<< codeGenExpr a) args
+    return $ Malloc (Just (CStar (CStruct name))) Nothing (CStruct name)
 
 codeGenExpr _ = error "expression TODO"
 
