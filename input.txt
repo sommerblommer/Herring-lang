@@ -1,3 +1,5 @@
+add : (a : Int) -> (b : Int) -> Int 
+    return a + b
 
 
 main : Int 
@@ -5,7 +7,7 @@ main : Int
     in
     for i in 0..5 -> 
         (
-        let _ = print (arr[i])
+        let _ = print (add(arr[i], arr[i]))
         in
         )
     <- 

@@ -88,7 +88,11 @@ instance Show CExpr where
     show (CVar o) = o 
     show (CIntLit i) = show i
     show (CBoolLit b) = show b
-    show (FCall fn args) = fn ++ "(" ++ foldl (\acc s -> show s ++ ", " ++ acc) "" args ++ ")"
+    show (FCall fn args) = 
+        let helper [] = ""
+            helper [x] = show x 
+            helper (x:xs) = show x ++ ", " ++ helper xs  
+        in fn ++ "(" ++ helper args ++ ")"
     show (PrintF args) = 
         let mt t = case t of 
                     CIntType -> "%d"
@@ -129,8 +133,12 @@ instance Show CLine where
 data CFunc = CFunc {retType :: CType, cfname :: String, cparams :: [(String, CType)], cbody :: [CLine]}
 instance Show CFunc where 
     show cf = 
+        let argList [] = ""
+            argList [(pn, pt)] = show pt `space` pn 
+            argList ((pname, ptyp):xs) = show ptyp `space` pname ++ ", " ++ argList xs
+        in
         let h = show (retType cf) `space` cfname cf 
-            pms = foldl (\acc (pname, ptyp) -> show ptyp `space` pname ++ ", " ++ acc) "" $ cparams cf           
+            pms = argList $ cparams cf           
             b = foldl (\acc cl -> show cl ++ "\n" ++ acc) "" $ cbody cf
         in h ++ "(" ++ pms ++ ")" ++  b 
 
@@ -264,7 +272,9 @@ codeGenStm _ = error "Statement TODO"
 codeGenFunc :: Function -> RWS () [String] (Cfg, Env) () 
 codeGenFunc func = do 
     tell ["in function: " ++ funName func]
+    createLine ScopeStart
     _ <- codeGenStm $ body func  
+    createLine ScopeEnd
     finalizeFunction (concreteType (returnType func)) (funName func) $ map (second concreteType) $ params func 
 
 codeGenAst :: TypedAst -> IO String 
