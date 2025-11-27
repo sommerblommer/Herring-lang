@@ -30,6 +30,7 @@ library
       CCodeGen
       CodeGen
       Exceptions
+      Interpreter
       Lexer
       Lib
       LlvmCodeGen
